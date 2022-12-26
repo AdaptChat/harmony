@@ -1,4 +1,4 @@
-use std::{borrow::Cow, net::SocketAddr, time::Duration};
+use std::{borrow::Cow, net::IpAddr, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use essence::ws::{InboundMessage, OutboundMessage};
@@ -54,7 +54,7 @@ async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> O
 pub async fn handle_socket(
     socket: WebSocket,
     con_config: ConnectionConfig,
-    ip: SocketAddr,
+    ip: IpAddr,
 ) -> Result<()> {
     debug!("Connected from: {ip}");
 

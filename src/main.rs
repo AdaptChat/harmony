@@ -34,8 +34,8 @@ async fn main() {
                         drop(websocket::handle_socket(
                             socket,
                             params.0,
-                            headers.get("cf-connecting-ip").map_or(ip, |_ip| {
-                                _ip.to_str().unwrap_or_default().parse().unwrap_or(ip)
+                            headers.get("cf-connecting-ip").map_or(ip.ip(), |_ip| {
+                                _ip.to_str().unwrap_or_default().parse().unwrap_or(ip.ip())
                             }),
                         ).await)
                     })
