@@ -9,14 +9,22 @@ pub enum Error {
 }
 
 impl From<simd_json::Error> for Error {
-    fn from(value: simd_json::Error) -> Self {
+    fn from(_: simd_json::Error) -> Self {
         Self::InvalidData
     }
 }
 
 impl From<rmp_serde::decode::Error> for Error {
-    fn from(value: rmp_serde::decode::Error) -> Self {
+    fn from(_: rmp_serde::decode::Error) -> Self {
         Self::InvalidData
+    }
+}
+
+impl From<axum::Error> for Error {
+    fn from(_: axum::Error) -> Self {
+        // In the context of WS, there is not really a way to return error to the client if they already disconnected
+        // So we are just going to ignore it.
+        Self::Ignore
     }
 }
 

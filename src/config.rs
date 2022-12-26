@@ -41,7 +41,7 @@ impl ConnectionConfig {
     }
 
     /// Decode a message
-    /// 
+    ///
     /// JSON must be sent with text while msgpack must be sent with binary
     pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
     where

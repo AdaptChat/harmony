@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Duration, net::SocketAddr};
+use std::{borrow::Cow, net::SocketAddr, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use essence::ws::{InboundMessage, OutboundMessage};
@@ -9,7 +9,7 @@ use futures_util::{
 
 use crate::{
     config::{ConnectionConfig, UserSession},
-    error::Error,
+    error::{Error, Result},
 };
 
 async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Option<()> {
@@ -44,16 +44,31 @@ async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> O
     }
 }
 
-pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig, ip: SocketAddr) {
+/// Process event for a websocket connection.
+/// 
+/// # Error
+/// 
+/// This function returns an error solely because of the conveience of the ? operator
+/// It uses the ? operator on `sender.send` function because if it fails to send that means the client has disconnected, meaning is safe to return
+/// The error return by this function is meant to be ignored.
+pub async fn handle_socket(
+    socket: WebSocket,
+    con_config: ConnectionConfig,
+    ip: SocketAddr,
+) -> Result<()> {
     debug!("Connected from: {ip}");
 
     let (mut sender, mut receiver) = socket.split();
+    sender
+        .send(con_config.encode(OutboundMessage::Hello))
+        .await?;
+
     let session = {
         if let Ok(Ok(Some(mut message))) =
             tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
         {
             match &message {
-                Message::Close(_) => return,
+                Message::Close(_) => return Ok(()),
                 _ => {}
             }
 
@@ -64,41 +79,36 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig, ip: 
             } else if let Err(e) = event {
                 handle_error(e, &mut sender).await;
 
-                return;
+                return Ok(());
             } else {
-                drop(
-                    sender
-                        .send(Message::Close(Some(CloseFrame {
-                            code: 1003,
-                            reason: Cow::Borrowed("Failed to send Identify event"),
-                        })))
-                        .await,
-                );
-
-                drop(sender.close().await);
-
-                return;
-            }
-        } else {
-            drop(
                 sender
                     .send(Message::Close(Some(CloseFrame {
                         code: 1003,
                         reason: Cow::Borrowed("Failed to send Identify event"),
                     })))
-                    .await,
-            );
+                    .await?;
+                sender.close().await?;
 
-            drop(sender.close().await);
+                return Ok(());
+            }
+        } else {
+            sender
+                .send(Message::Close(Some(CloseFrame {
+                    code: 1003,
+                    reason: Cow::Borrowed("Failed to send Identify event"),
+                })))
+                .await?;
 
-            return;
+            sender.close().await?;
+
+            return Ok(());
         }
     };
 
     while let Ok(Some(mut message)) = receiver.try_next().await {
         match &message {
             Message::Close(_) => {
-                return;
+                return Ok(());
             }
             _ => {}
         }
@@ -107,15 +117,7 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig, ip: 
 
         if let Ok(event) = event {
             match event {
-                InboundMessage::Ping => {
-                    if sender
-                        .send(session.encode(OutboundMessage::Pong))
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
+                InboundMessage::Ping => sender.send(session.encode(OutboundMessage::Pong)).await?,
                 _ => {}
             }
         } else if let Err(e) = event {
@@ -124,4 +126,6 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig, ip: 
             }
         }
     }
+
+    Ok(())
 }

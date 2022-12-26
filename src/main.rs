@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 
 use axum::{
     extract::{ConnectInfo, Query, WebSocketUpgrade},
+    http::HeaderMap,
     routing::get,
     Router,
 };
@@ -24,9 +25,20 @@ async fn main() {
     let app = Router::new().route(
         "/",
         get(
-            |ws: WebSocketUpgrade, params: Query<config::ConnectionConfig>, ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
+            |ws: WebSocketUpgrade,
+             params: Query<config::ConnectionConfig>,
+             headers: HeaderMap,
+             ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
                 ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {e:?}"))
-                    .on_upgrade(move |socket| websocket::handle_socket(socket, params.0, ip))
+                    .on_upgrade(move |socket| async move {
+                        drop(websocket::handle_socket(
+                            socket,
+                            params.0,
+                            headers.get("​​CF-Connecting-IP").map_or(ip, |_ip| {
+                                _ip.to_str().unwrap_or_default().parse().unwrap_or(ip)
+                            }),
+                        ).await)
+                    })
             },
         ),
     );
