@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 mod config;
 mod error;
 mod websocket;
@@ -10,11 +13,18 @@ use axum::{
 
 #[tokio::main]
 async fn main() {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
+
+    pretty_env_logger::init();
+
     let app = Router::new().route(
         "/",
         get(
             |ws: WebSocketUpgrade, params: Query<config::ConnectionConfig>| async {
-                ws.on_upgrade(|socket| websocket::handle_socket(socket, params.0));
+                ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {:?}", e))
+                    .on_upgrade(|socket| websocket::handle_socket(socket, params.0))
             },
         ),
     );
