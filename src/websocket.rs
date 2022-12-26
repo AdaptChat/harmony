@@ -105,7 +105,7 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
         if let Ok(event) = event {
             match event {
                 InboundMessage::Ping => {
-                    if sender.send(session.encode(OutboundEvent::Pong)).await.is_err() {
+                    if sender.send(session.encode(OutboundMessage::Pong)).await.is_err() {
                         sender.close().await;
                         return;
                     }
