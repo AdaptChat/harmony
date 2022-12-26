@@ -1,0 +1,16 @@
+[package]
+name = "harmony"
+authors = ["Cryptex"]
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.6", features = ["ws"] }
+futures-util = "0"
+rmp-serde = "1.1"
+serde = { version = "1", features = ["derive"] }
+simd-json = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "signal", "parking_lot"] }
+essence = { git = "https://github.com/AdaptChat/essence" }
