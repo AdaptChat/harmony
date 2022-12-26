@@ -1,7 +1,7 @@
 use std::{borrow::Cow, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use essence::ws::InboundMessage;
+use essence::ws::{InboundMessage, OutboundMessage};
 use futures_util::{
     stream::{SplitSink, StreamExt},
     SinkExt, TryStreamExt,
