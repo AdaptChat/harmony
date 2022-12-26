@@ -47,7 +47,7 @@ async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> O
 pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
     let (mut sender, mut receiver) = socket.split();
     let session = {
-        if let Ok(Some(mut message)) = receiver.try_next().await {
+        if let Ok(Ok(Some(mut message))) = tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await {
             match &message {
                 Message::Close(_) => drop(sender.close().await),
                 _ => {}

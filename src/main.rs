@@ -19,7 +19,7 @@ async fn main() {
         ),
     );
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    axum::Server::bind(&"0.0.0.0:8076".parse().unwrap())
         .serve(app.into_make_service())
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
