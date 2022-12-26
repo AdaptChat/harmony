@@ -5,8 +5,10 @@ mod config;
 mod error;
 mod websocket;
 
+use std::net::SocketAddr;
+
 use axum::{
-    extract::{Query, WebSocketUpgrade},
+    extract::{ConnectInfo, Query, WebSocketUpgrade},
     routing::get,
     Router,
 };
@@ -22,15 +24,15 @@ async fn main() {
     let app = Router::new().route(
         "/",
         get(
-            |ws: WebSocketUpgrade, params: Query<config::ConnectionConfig>| async {
-                ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {:?}", e))
-                    .on_upgrade(|socket| websocket::handle_socket(socket, params.0))
+            |ws: WebSocketUpgrade, params: Query<config::ConnectionConfig>, ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
+                ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {e:?}"))
+                    .on_upgrade(move |socket| websocket::handle_socket(socket, params.0, ip))
             },
         ),
     );
 
     axum::Server::bind(&"0.0.0.0:8076".parse().unwrap())
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
         })

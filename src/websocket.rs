@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Duration};
+use std::{borrow::Cow, time::Duration, net::SocketAddr};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use essence::ws::{InboundMessage, OutboundMessage};
@@ -44,12 +44,16 @@ async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> O
     }
 }
 
-pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
+pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig, ip: SocketAddr) {
+    debug!("Connected from: {ip}");
+
     let (mut sender, mut receiver) = socket.split();
     let session = {
-        if let Ok(Ok(Some(mut message))) = tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await {
+        if let Ok(Ok(Some(mut message))) =
+            tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
+        {
             match &message {
-                Message::Close(_) => drop(sender.close().await),
+                Message::Close(_) => return,
                 _ => {}
             }
 
@@ -94,9 +98,8 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
     while let Ok(Some(mut message)) = receiver.try_next().await {
         match &message {
             Message::Close(_) => {
-                sender.close().await;
                 return;
-            },
+            }
             _ => {}
         }
 
@@ -105,11 +108,14 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
         if let Ok(event) = event {
             match event {
                 InboundMessage::Ping => {
-                    if sender.send(session.encode(OutboundMessage::Pong)).await.is_err() {
-                        sender.close().await;
+                    if sender
+                        .send(session.encode(OutboundMessage::Pong))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
-                },
+                }
                 _ => {}
             }
         } else if let Err(e) = event {

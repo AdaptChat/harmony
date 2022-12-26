@@ -40,28 +40,18 @@ impl ConnectionConfig {
         }
     }
 
+    /// Decode a message
+    /// 
+    /// JSON must be sent with text while msgpack must be sent with binary
     pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
     where
         Self: 'a,
     {
-        Ok(match self.format {
-            MessageFormat::Json => {
-                match message {
-                    // SAFETY: We are not using the string after passing to it, so it doesn't really matter if is valid UTF-8 or not.
-                    Message::Text(ref mut t) => unsafe { simd_json::from_str(t)? },
-                    Message::Binary(ref mut b) => simd_json::from_slice(b)?,
-                    _ => return Err(Error::Ignore),
-                }
-            }
-            MessageFormat::Msgpack => match message {
-                Message::Text(_) => {
-                    return Err(Error::InvalidFormat(
-                        "Text is not allowed when chosen msgpack".to_string(),
-                    ))
-                }
-                Message::Binary(b) => rmp_serde::from_slice(b)?,
-                _ => return Err(Error::Ignore),
-            },
+        Ok(match message {
+            // SAFETY: We are not using the string after passing to it, so it doesn't really matter if is valid UTF-8 or not.
+            Message::Text(ref mut t) => unsafe { simd_json::from_str(t)? },
+            Message::Binary(b) => rmp_serde::from_slice(b)?,
+            _ => return Err(Error::Ignore),
         })
     }
 }
