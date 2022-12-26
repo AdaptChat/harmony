@@ -93,7 +93,10 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
 
     while let Ok(Some(mut message)) = receiver.try_next().await {
         match &message {
-            Message::Close(_) => drop(sender.close().await),
+            Message::Close(_) => {
+                sender.close().await;
+                return;
+            },
             _ => {}
         }
 
@@ -101,7 +104,12 @@ pub async fn handle_socket(socket: WebSocket, con_config: ConnectionConfig) {
 
         if let Ok(event) = event {
             match event {
-                InboundMessage::Ping => sender.send(session.encode(OutboundEvent::Pong)),
+                InboundMessage::Ping => {
+                    if sender.send(session.encode(OutboundEvent::Pong)).await.is_err() {
+                        sender.close().await;
+                        return;
+                    }
+                },
                 _ => {}
             }
         } else if let Err(e) = event {
