@@ -55,9 +55,7 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
     debug!("Connected from: {ip}");
 
     let (mut sender, mut receiver) = socket.split();
-    sender
-        .send(con.encode(OutboundMessage::Hello))
-        .await?;
+    sender.send(con.encode(OutboundMessage::Hello)).await?;
 
     let session = {
         if let Ok(Ok(Some(mut message))) =

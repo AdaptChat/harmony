@@ -44,7 +44,7 @@ impl Connection {
 
     /// Decode a message
     ///
-    /// JSON must be sent with text while msgpack must be sent with 
+    /// JSON must be sent with text while msgpack must be sent with
     #[allow(clippy::unused_self)]
     pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
     where
@@ -67,7 +67,11 @@ pub struct UserSession {
 
 impl UserSession {
     pub fn new(con_config: ConnectionConfig, token: String) -> Self {
-        Self { con_config, token, id: Alphanumeric.sample_string(&mut rand::thread_rng(), 32) }
+        Self {
+            con_config,
+            token,
+            id: Alphanumeric.sample_string(&mut rand::thread_rng(), 32),
+        }
     }
 }
 
