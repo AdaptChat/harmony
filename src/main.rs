@@ -26,18 +26,24 @@ async fn main() {
         "/",
         get(
             |ws: WebSocketUpgrade,
-             params: Query<config::ConnectionConfig>,
+             params: Query<config::Connection>,
              headers: HeaderMap,
              ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
                 ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {e:?}"))
                     .on_upgrade(move |socket| async move {
-                        drop(websocket::handle_socket(
-                            socket,
-                            params.0,
-                            headers.get("cf-connecting-ip").map_or(ip.ip(), |_ip| {
-                                _ip.to_str().unwrap_or_default().parse().unwrap_or(ip.ip())
-                            }),
-                        ).await)
+                        drop(
+                            websocket::handle_socket(
+                                socket,
+                                params.0,
+                                headers.get("cf-connecting-ip").map_or(ip.ip(), |v| {
+                                    v.to_str()
+                                        .unwrap_or_default()
+                                        .parse()
+                                        .unwrap_or_else(|_| ip.ip())
+                                }),
+                            )
+                            .await,
+                        );
                     })
             },
         ),

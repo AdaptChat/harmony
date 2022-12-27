@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
 use axum::extract::ws::Message;
-use serde::{Deserialize, Serialize};
 use rand::distributions::{Alphanumeric, DistString};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
@@ -14,20 +14,21 @@ pub enum MessageFormat {
     Msgpack,
 }
 
-#[inline(always)]
+#[inline]
 const fn default_version() -> u8 {
     1
 }
 
+#[allow(clippy::unsafe_derive_deserialize)]
 #[derive(Debug, Deserialize)]
-pub struct ConnectionConfig {
+pub struct Connection {
     #[serde(default = "default_version")]
     version: u8,
     #[serde(default)]
     format: MessageFormat,
 }
 
-impl ConnectionConfig {
+impl Connection {
     pub fn encode<T: Serialize>(&self, data: T) -> Message {
         match self.format {
             MessageFormat::Json => Message::Text(
@@ -43,7 +44,8 @@ impl ConnectionConfig {
 
     /// Decode a message
     ///
-    /// JSON must be sent with text while msgpack must be sent with binary
+    /// JSON must be sent with text while msgpack must be sent with 
+    #[allow(clippy::unused_self)]
     pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
     where
         Self: 'a,
@@ -58,19 +60,23 @@ impl ConnectionConfig {
 }
 
 pub struct UserSession {
-    pub con_config: ConnectionConfig,
+    pub con_config: Connection,
     pub token: String,
-    pub id: String
+    pub id: String,
 }
 
 impl UserSession {
-    pub fn new(con_config: ConnectionConfig, token: String) -> Self {
-        Self { con_config, token, id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16) }
+    pub fn new(con_config: Connection, token: String) -> Self {
+        Self {
+            con_config,
+            token,
+            id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+        }
     }
 }
 
 impl Deref for UserSession {
-    type Target = ConnectionConfig;
+    type Target = Connection;
 
     fn deref(&self) -> &Self::Target {
         &self.con_config
