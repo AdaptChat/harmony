@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use axum::extract::ws::Message;
 use serde::{Deserialize, Serialize};
+use rand::distributions::{Alphanumeric, DistString};
 
 use crate::error::{Error, Result};
 
@@ -59,11 +60,12 @@ impl ConnectionConfig {
 pub struct UserSession {
     pub con_config: ConnectionConfig,
     pub token: String,
+    pub id: String
 }
 
 impl UserSession {
     pub fn new(con_config: ConnectionConfig, token: String) -> Self {
-        Self { con_config, token }
+        Self { con_config, token, id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16) }
     }
 }
 

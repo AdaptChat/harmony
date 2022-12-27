@@ -105,6 +105,8 @@ pub async fn handle_socket(
         }
     };
 
+    sender.send(OutboundMessage::Ready { session_id: session.id }).await?;
+
     while let Ok(Some(mut message)) = receiver.try_next().await {
         match &message {
             Message::Close(_) => {
