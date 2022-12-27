@@ -12,35 +12,31 @@ use crate::{
     error::{Error, Result},
 };
 
-async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Option<()> {
+async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Result<()> {
     match e {
         Error::InvalidData => {
-            drop(
-                sender
-                    .send(Message::Close(Some(CloseFrame {
-                        code: 1003,
-                        reason: Cow::Borrowed("Client sent unserializable data"),
-                    })))
-                    .await,
-            );
+            sender
+                .send(Message::Close(Some(CloseFrame {
+                    code: 1003,
+                    reason: Cow::Borrowed("Client sent unserializable data"),
+                })))
+                .await?;
 
-            drop(sender.close().await);
-            None
+            sender.close().await?;
+            Err(Error::Ignore)
         }
         Error::InvalidFormat(m) => {
-            drop(
-                sender
-                    .send(Message::Close(Some(CloseFrame {
-                        code: 1007,
-                        reason: Cow::Owned(m),
-                    })))
-                    .await,
-            );
+            sender
+                .send(Message::Close(Some(CloseFrame {
+                    code: 1007,
+                    reason: Cow::Owned(m),
+                })))
+                .await?;
 
-            drop(sender.close().await);
-            None
+            sender.close().await?;
+            Err(Error::Ignore)
         }
-        Error::Ignore => Some(()),
+        Error::Ignore => Ok(()),
     }
 }
 
@@ -70,7 +66,7 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
             match event {
                 Ok(InboundMessage::Identify { token }) => UserSession::new(con, token),
                 Err(e) => {
-                    handle_error(e, &mut sender).await;
+                    handle_error(e, &mut sender).await?;
 
                     return Ok(());
                 }
@@ -119,8 +115,10 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
                 _ => {}
             }
         } else if let Err(e) = event {
-            if handle_error(e, &mut sender).await.is_some() {
+            if handle_error(e, &mut sender).await.is_ok() {
                 continue;
+            } else {
+                return Ok(());
             }
         }
     }

@@ -66,7 +66,7 @@ pub struct UserSession {
 }
 
 impl UserSession {
-    pub fn new(con_config: ConnectionConfig, token: String) -> Self {
+    pub fn new(con_config: Connection, token: String) -> Self {
         Self {
             con_config,
             token,
