@@ -66,12 +66,8 @@ pub struct UserSession {
 }
 
 impl UserSession {
-    pub fn new(con_config: Connection, token: String) -> Self {
-        Self {
-            con_config,
-            token,
-            id: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
-        }
+    pub fn new(con_config: ConnectionConfig, token: String) -> Self {
+        Self { con_config, token, id: Alphanumeric.sample_string(&mut rand::thread_rng(), 32) }
     }
 }
 
