@@ -109,16 +109,17 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
         let event = session.decode::<InboundMessage>(&mut message);
 
-        if let Ok(event) = event {
-            match event {
+        match event {
+            Ok(event) => match event {
                 InboundMessage::Ping => sender.send(session.encode(OutboundMessage::Pong)).await?,
                 _ => {}
-            }
-        } else if let Err(e) = event {
-            if handle_error(e, &mut sender).await.is_ok() {
-                continue;
-            } else {
-                return Ok(());
+            },
+            Err(e) => {
+                if handle_error(e, &mut sender).await.is_ok() {
+                    continue;
+                } else {
+                    return Ok(());
+                }
             }
         }
     }
