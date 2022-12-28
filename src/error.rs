@@ -1,22 +1,20 @@
 #[derive(Debug)]
 pub enum Error {
     /// Client sent invalid data.
-    InvalidData,
+    InvalidData(String),
     /// Caller should ignore this event and continue processing.
     Ignore,
-    /// Caller sent data using an inalid format under current context.
-    InvalidFormat(String),
 }
 
 impl From<simd_json::Error> for Error {
-    fn from(_: simd_json::Error) -> Self {
-        Self::InvalidData
+    fn from(val: simd_json::Error) -> Self {
+        Self::InvalidData(val.to_string())
     }
 }
 
 impl From<rmp_serde::decode::Error> for Error {
-    fn from(_: rmp_serde::decode::Error) -> Self {
-        Self::InvalidData
+    fn from(val: rmp_serde::decode::Error) -> Self {
+        Self::InvalidData(val.to_string())
     }
 }
 

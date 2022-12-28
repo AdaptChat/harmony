@@ -14,22 +14,11 @@ use crate::{
 
 async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Result<()> {
     match e {
-        Error::InvalidData => {
+        Error::InvalidData(e) => {
             sender
                 .send(Message::Close(Some(CloseFrame {
                     code: 1003,
-                    reason: Cow::Borrowed("Client sent unserializable data"),
-                })))
-                .await?;
-
-            sender.close().await?;
-            Err(Error::Ignore)
-        }
-        Error::InvalidFormat(m) => {
-            sender
-                .send(Message::Close(Some(CloseFrame {
-                    code: 1007,
-                    reason: Cow::Owned(m),
+                    reason: Cow::Owned(e),
                 })))
                 .await?;
 
