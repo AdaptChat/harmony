@@ -47,7 +47,8 @@ async fn main() {
                     })
             },
         ),
-    );
+    )
+    .layer(tower_http::trace::TraceLayer::new_for_http());
 
     axum::Server::bind(&"0.0.0.0:8076".parse().unwrap())
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())

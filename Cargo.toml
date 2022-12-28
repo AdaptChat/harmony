@@ -17,3 +17,4 @@ essence = { git = "https://github.com/AdaptChat/essence" }
 pretty_env_logger = "0.4"
 log = "0.4"
 rand = "0.8"
+tower-http = { version = "0.3", default-features = false, features = ["trace"] }
