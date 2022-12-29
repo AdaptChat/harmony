@@ -1,4 +1,4 @@
-use std::{borrow::Cow, net::IpAddr, time::Duration, num::NonZeroU32};
+use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use essence::ws::{InboundMessage, OutboundMessage};
@@ -6,8 +6,7 @@ use futures_util::{
     stream::{SplitSink, StreamExt},
     SinkExt, TryStreamExt,
 };
-use governor::{RateLimiter, Quota};
-
+use governor::{Quota, RateLimiter};
 
 use crate::{
     config::{Connection, UserSession},
@@ -42,7 +41,7 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
     debug!("Connected from: {ip}");
 
     let (mut sender, mut receiver) = socket.split();
-    sender.send(con.encode(OutboundMessage::Hello)).await?;
+    sender.send(con.encode(&OutboundMessage::Hello)).await?;
 
     let session = {
         if let Ok(Ok(Some(mut message))) =
@@ -87,10 +86,11 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
         }
     };
 
-    let ratelimiter = unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
+    let ratelimiter =
+        unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
 
     sender
-        .send(session.encode(OutboundMessage::Ready {
+        .send(session.encode(&OutboundMessage::Ready {
             session_id: session.id.clone(),
         }))
         .await?;
@@ -101,14 +101,17 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
         }
 
         if ratelimiter.check().is_err() {
-            info!("Rate limit exceeded for {ip} - {}, disconnecting", &session.id);
+            info!(
+                "Rate limit exceeded for {ip} - {}, disconnecting",
+                &session.id
+            );
 
-            sender.send(
-                Message::Close(Some(CloseFrame {
+            sender
+                .send(Message::Close(Some(CloseFrame {
                     code: 1008,
                     reason: Cow::Borrowed("Rate limit exceeded"),
-                }))
-            ).await?;
+                })))
+                .await?;
 
             return Ok(());
         }
@@ -117,7 +120,7 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
         match event {
             Ok(event) => match event {
-                InboundMessage::Ping => sender.send(session.encode(OutboundMessage::Pong)).await?,
+                InboundMessage::Ping => sender.send(session.encode(&OutboundMessage::Pong)).await?,
                 _ => {}
             },
             Err(e) => {

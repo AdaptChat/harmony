@@ -29,14 +29,14 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn encode<T: Serialize>(&self, data: T) -> Message {
+    pub fn encode<T: Serialize>(&self, data: &T) -> Message {
         match self.format {
             MessageFormat::Json => Message::Text(
-                simd_json::to_string(&data)
+                simd_json::to_string(data)
                     .expect("Failed to serialize a model, a model should always be serializable"),
             ),
             MessageFormat::Msgpack => Message::Binary(
-                rmp_serde::to_vec_named(&data)
+                rmp_serde::to_vec_named(data)
                     .expect("Failed to serialize a model, a model should always be serializable"),
             ),
         }
