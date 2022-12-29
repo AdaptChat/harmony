@@ -1,4 +1,4 @@
-use std::{borrow::Cow, net::IpAddr, time::Duration};
+use std::{borrow::Cow, net::IpAddr, time::Duration, num::NonZeroU32};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use essence::ws::{InboundMessage, OutboundMessage};
@@ -6,6 +6,8 @@ use futures_util::{
     stream::{SplitSink, StreamExt},
     SinkExt, TryStreamExt,
 };
+use governor::{RateLimiter, Quota};
+
 
 use crate::{
     config::{Connection, UserSession},
@@ -85,6 +87,8 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
         }
     };
 
+    let ratelimiter = unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
+
     sender
         .send(session.encode(OutboundMessage::Ready {
             session_id: session.id.clone(),
@@ -93,6 +97,19 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
     while let Ok(Some(mut message)) = receiver.try_next().await {
         if let Message::Close(_) = &message {
+            return Ok(());
+        }
+
+        if ratelimiter.check().is_err() {
+            info!("Rate limit exceeded for {ip} - {}, disconnecting", &session.id);
+
+            sender.send(
+                Message::Close(Some(CloseFrame {
+                    code: 1008,
+                    reason: Cow::Borrowed("Rate limit exceeded"),
+                }))
+            ).await?;
+
             return Ok(());
         }
 
