@@ -34,6 +34,12 @@ impl From<sqlx::Error> for Error {
     }
 }
 
+impl From<essence::Error> for Error {
+    fn from(value: essence::Error) -> Self {
+        Self::Close(format!("{value:?}"))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub trait IsNoneExt<T> {
