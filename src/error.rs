@@ -1,20 +1,22 @@
+use essence::db::sqlx;
+
 #[derive(Debug)]
 pub enum Error {
-    /// Client sent invalid data.
-    InvalidData(String),
+    /// Close connection with error message.
+    Close(String),
     /// Caller should ignore this event and continue processing.
     Ignore,
 }
 
 impl From<simd_json::Error> for Error {
     fn from(val: simd_json::Error) -> Self {
-        Self::InvalidData(val.to_string())
+        Self::Close(val.to_string())
     }
 }
 
 impl From<rmp_serde::decode::Error> for Error {
     fn from(val: rmp_serde::decode::Error) -> Self {
-        Self::InvalidData(val.to_string())
+        Self::Close(val.to_string())
     }
 }
 
@@ -26,4 +28,20 @@ impl From<axum::Error> for Error {
     }
 }
 
+impl From<sqlx::Error> for Error {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub trait IsNoneExt<T> {
+    fn ok_or_close(self, message: impl Into<String>) -> Result<T>;
+}
+
+impl<T> IsNoneExt<T> for Option<T> {
+    fn ok_or_close(self, message: impl Into<String>) -> Result<T> {
+        self.ok_or_else(|| Error::Close(message.into()))
+    }
+}

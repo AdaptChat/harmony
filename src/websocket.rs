@@ -15,7 +15,7 @@ use crate::{
 
 async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Result<()> {
     match e {
-        Error::InvalidData(e) => {
+        Error::Close(e) => {
             sender
                 .send(Message::Close(Some(CloseFrame {
                     code: 1003,
@@ -28,6 +28,15 @@ async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> R
         }
         Error::Ignore => Ok(()),
     }
+}
+
+macro_rules! close_if_error {
+    ($func:expr, $sender:expr) => {{
+        match $func {
+            Ok(val) => val,
+            Err(e) => return handle_error(e, $sender).await,
+        }
+    }};
 }
 
 /// Process event for a websocket connection.
@@ -54,11 +63,11 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
             let event = con.decode::<InboundMessage>(&mut message);
 
             match event {
-                Ok(InboundMessage::Identify { token }) => UserSession::new(con, token),
+                Ok(InboundMessage::Identify { token }) => {
+                    close_if_error!(UserSession::new_with_token(con, token).await, &mut sender)
+                }
                 Err(e) => {
-                    handle_error(e, &mut sender).await?;
-
-                    return Ok(());
+                    return handle_error(e, &mut sender).await;
                 }
                 _ => {
                     sender
@@ -90,9 +99,10 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
 
     sender
-        .send(session.encode(&OutboundMessage::Ready {
-            session_id: session.id.clone(),
-        }))
+        .send(session.encode(&close_if_error!(
+            session.get_ready_event().await,
+            &mut sender
+        )))
         .await?;
 
     while let Ok(Some(mut message)) = receiver.try_next().await {

@@ -5,7 +5,7 @@ mod config;
 mod error;
 mod websocket;
 
-use std::net::SocketAddr;
+use std::{env, net::SocketAddr};
 
 use axum::{
     extract::{ConnectInfo, Query, WebSocketUpgrade},
@@ -13,6 +13,7 @@ use axum::{
     routing::get,
     Router,
 };
+use essence::db::connect;
 
 #[tokio::main]
 async fn main() {
@@ -21,6 +22,12 @@ async fn main() {
     }
 
     pretty_env_logger::init();
+
+    drop(dotenv::dotenv());
+
+    connect(&env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"))
+        .await
+        .expect("Failed to connect to db");
 
     let app = Router::new()
         .route(

@@ -1,10 +1,15 @@
 use std::ops::Deref;
 
 use axum::extract::ws::Message;
+use essence::{
+    db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
+    http::guild::GetGuildQuery,
+    ws::OutboundMessage,
+};
 use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Error, Result};
+use crate::error::{Error, IsNoneExt, Result};
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -63,15 +68,45 @@ pub struct UserSession {
     pub con_config: Connection,
     pub token: String,
     pub id: String,
+    pub user_id: u64,
 }
 
 impl UserSession {
-    pub fn new(con_config: Connection, token: String) -> Self {
-        Self {
+    pub async fn new_with_token(con_config: Connection, token: String) -> Result<Self> {
+        let (user_id, _flags) = get_pool()
+            .fetch_user_info_by_token(&token)
+            .await?
+            .ok_or_else(|| Error::Close("Invalid token".to_string()))?;
+
+        Ok(Self {
             con_config,
+            user_id,
             token,
             id: Alphanumeric.sample_string(&mut rand::thread_rng(), 32),
-        }
+        })
+    }
+
+    pub async fn get_ready_event(&self) -> Result<OutboundMessage> {
+        let db = get_pool();
+
+        let (user, guilds) = tokio::join!(
+            db.fetch_client_user_by_id(self.user_id),
+            db.fetch_all_guilds_for_user(
+                self.user_id,
+                GetGuildQuery {
+                    channels: true,
+                    members: true,
+                    roles: true
+                }
+            )
+        );
+        let user = user?.ok_or_close("User does not exist")?;
+
+        Ok(OutboundMessage::Ready {
+            session_id: self.id.clone(),
+            user,
+            guilds: guilds?,
+        })
     }
 }
 
