@@ -7,23 +7,25 @@ use futures_util::{
     SinkExt, TryStreamExt,
 };
 use governor::{Quota, RateLimiter};
+use serde::Serialize;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     config::{Connection, UserSession},
     error::{Error, Result},
+    upsteam::handle_upsteam,
 };
 
-async fn handle_error(e: Error, sender: &mut SplitSink<WebSocket, Message>) -> Result<()> {
+pub type Sender = SplitSink<WebSocket, Message>;
+
+async fn handle_error(e: Error, tx: &UnboundedSender<Message>) -> Result<()> {
     match e {
         Error::Close(e) => {
-            sender
-                .send(Message::Close(Some(CloseFrame {
-                    code: 1003,
-                    reason: Cow::Owned(e),
-                })))
-                .await?;
+            tx.send(Message::Close(Some(CloseFrame {
+                code: 1003,
+                reason: Cow::Owned(e),
+            })))?;
 
-            sender.close().await?;
             Err(Error::Ignore)
         }
         Error::Ignore => Ok(()),
@@ -64,10 +66,25 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
             match event {
                 Ok(InboundMessage::Identify { token }) => {
-                    close_if_error!(UserSession::new_with_token(con, token).await, &mut sender)
+                    match UserSession::new_with_token(con, token).await {
+                        Ok(val) => val,
+                        Err(e) => {
+                            return Ok(sender
+                                .send(Message::Close(Some(CloseFrame {
+                                    code: 1003,
+                                    reason: Cow::Owned(e.to_string()),
+                                })))
+                                .await?);
+                        }
+                    }
                 }
                 Err(e) => {
-                    return handle_error(e, &mut sender).await;
+                    return Ok(sender
+                        .send(Message::Close(Some(CloseFrame {
+                            code: 1003,
+                            reason: Cow::Owned(e.to_string()),
+                        })))
+                        .await?)
                 }
                 _ => {
                     sender
@@ -95,15 +112,20 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
         }
     };
 
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+
+    tokio::spawn(async move {
+        while let Some(m) = rx.recv().await {
+            sender.send(m).await.unwrap();
+        }
+    });
+
+    let task = tokio::spawn(handle_upsteam(session.clone(), tx.clone()));
+
     let ratelimiter =
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
 
-    sender
-        .send(session.encode(&close_if_error!(
-            session.get_ready_event().await,
-            &mut sender
-        )))
-        .await?;
+    tx.send(session.encode(&close_if_error!(session.get_ready_event().await, &tx)))?;
 
     while let Ok(Some(mut message)) = receiver.try_next().await {
         if let Message::Close(_) = &message {
@@ -116,12 +138,10 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
                 &session.id
             );
 
-            sender
-                .send(Message::Close(Some(CloseFrame {
-                    code: 1008,
-                    reason: Cow::Borrowed("Rate limit exceeded"),
-                })))
-                .await?;
+            tx.send(Message::Close(Some(CloseFrame {
+                code: 1008,
+                reason: Cow::Borrowed("Rate limit exceeded"),
+            })))?;
 
             return Ok(());
         }
@@ -130,11 +150,11 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
         match event {
             Ok(event) => match event {
-                InboundMessage::Ping => sender.send(session.encode(&OutboundMessage::Pong)).await?,
+                InboundMessage::Ping => tx.send(session.encode(&OutboundMessage::Pong))?,
                 _ => {}
             },
             Err(e) => {
-                if handle_error(e, &mut sender).await.is_ok() {
+                if handle_error(e, &tx).await.is_ok() {
                     continue;
                 } else {
                     return Ok(());

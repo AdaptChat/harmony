@@ -4,6 +4,7 @@ use axum::extract::ws::Message;
 use essence::{
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
+    models::Guild,
     ws::OutboundMessage,
 };
 use rand::distributions::{Alphanumeric, DistString};
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IsNoneExt, Result};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageFormat {
     #[default]
@@ -25,7 +26,7 @@ const fn default_version() -> u8 {
 }
 
 #[allow(clippy::unsafe_derive_deserialize)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Connection {
     #[serde(default = "default_version")]
     version: u8,
@@ -64,6 +65,7 @@ impl Connection {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct UserSession {
     pub con_config: Connection,
     pub token: String,
@@ -107,6 +109,19 @@ impl UserSession {
             user,
             guilds: guilds?,
         })
+    }
+
+    pub async fn get_guilds(&self) -> Result<Vec<Guild>> {
+        Ok(get_pool()
+            .fetch_all_guilds_for_user(
+                self.user_id,
+                GetGuildQuery {
+                    channels: true,
+                    members: true,
+                    roles: true,
+                },
+            )
+            .await?)
     }
 }
 

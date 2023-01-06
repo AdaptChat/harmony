@@ -1,3 +1,6 @@
+use std::fmt::Display;
+
+use axum::extract::ws::Message;
 use essence::db::sqlx;
 
 #[derive(Debug)]
@@ -37,6 +40,21 @@ impl From<sqlx::Error> for Error {
 impl From<essence::Error> for Error {
     fn from(value: essence::Error) -> Self {
         Self::Close(format!("{value:?}"))
+    }
+}
+
+impl From<tokio::sync::mpsc::error::SendError<Message>> for Error {
+    fn from(value: tokio::sync::mpsc::error::SendError<Message>) -> Self {
+        Self::Close("Internal error while message to mpsc".to_string())
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Close(e) => f.write_str(e),
+            _ => f.write_str("Error::Ignore"),
+        }
     }
 }
 

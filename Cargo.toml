@@ -20,3 +20,4 @@ rand = "0.8"
 tower-http = { version = "0.3", default-features = false, features = ["trace"] }
 governor = { version = "0.5", default-features = false, features = ["std", "quanta"] }
 dotenv = "0"
+lapin = "2"
