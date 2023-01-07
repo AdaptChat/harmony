@@ -1,22 +1,17 @@
-use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, time::Duration};
+use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
+use deadpool_lapin::Object;
 use essence::ws::{InboundMessage, OutboundMessage};
-use futures_util::{
-    stream::{SplitSink, StreamExt},
-    SinkExt, TryStreamExt,
-};
+use futures_util::{stream::StreamExt, SinkExt, TryStreamExt};
 use governor::{Quota, RateLimiter};
-use serde::Serialize;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc::UnboundedSender, Notify};
 
 use crate::{
     config::{Connection, UserSession},
     error::{Error, Result},
     upsteam::handle_upsteam,
 };
-
-pub type Sender = SplitSink<WebSocket, Message>;
 
 async fn handle_error(e: Error, tx: &UnboundedSender<Message>) -> Result<()> {
     match e {
@@ -48,7 +43,12 @@ macro_rules! close_if_error {
 /// This function returns an error solely because of the conveience of the ? operator
 /// It uses the ? operator on `sender.send` function because if it fails to send that means the client has disconnected, meaning is safe to return
 /// The error return by this function is meant to be ignored.
-pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Result<()> {
+pub async fn handle_socket(
+    socket: WebSocket,
+    con: Connection,
+    ip: IpAddr,
+    amqp: Object,
+) -> Result<()> {
     debug!("Connected from: {ip}");
 
     let (mut sender, mut receiver) = socket.split();
@@ -114,54 +114,68 @@ pub async fn handle_socket(socket: WebSocket, con: Connection, ip: IpAddr) -> Re
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
-    tokio::spawn(async move {
+    let tx_task = tokio::spawn(async move {
         while let Some(m) = rx.recv().await {
             sender.send(m).await.unwrap();
         }
     });
 
-    let task = tokio::spawn(handle_upsteam(session.clone(), tx.clone()));
+    let upstream_finished_setup = Arc::new(Notify::new());
+
+    let upstream_task = tokio::spawn(handle_upsteam(
+        session.clone(),
+        tx.clone(),
+        amqp,
+        upstream_finished_setup.clone(),
+    ));
 
     let ratelimiter =
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
 
+    upstream_finished_setup.notified().await;
     tx.send(session.encode(&close_if_error!(session.get_ready_event().await, &tx)))?;
 
-    while let Ok(Some(mut message)) = receiver.try_next().await {
-        if let Message::Close(_) = &message {
-            return Ok(());
-        }
+    let client_task = tokio::spawn(async move || -> Result<()> {
+        while let Ok(Some(mut message)) = receiver.try_next().await {
+            if let Message::Close(_) = &message {
+                return Ok(());
+            }
 
-        if ratelimiter.check().is_err() {
-            info!(
-                "Rate limit exceeded for {ip} - {}, disconnecting",
-                &session.id
-            );
+            if ratelimiter.check().is_err() {
+                info!(
+                    "Rate limit exceeded for {ip} - {}, disconnecting",
+                    &session.id
+                );
 
-            tx.send(Message::Close(Some(CloseFrame {
-                code: 1008,
-                reason: Cow::Borrowed("Rate limit exceeded"),
-            })))?;
+                tx.send(Message::Close(Some(CloseFrame {
+                    code: 1008,
+                    reason: Cow::Borrowed("Rate limit exceeded"),
+                })))?;
 
-            return Ok(());
-        }
+                return Ok(());
+            }
 
-        let event = session.decode::<InboundMessage>(&mut message);
+            let event = session.decode::<InboundMessage>(&mut message);
 
-        match event {
-            Ok(event) => match event {
-                InboundMessage::Ping => tx.send(session.encode(&OutboundMessage::Pong))?,
-                _ => {}
-            },
-            Err(e) => {
-                if handle_error(e, &tx).await.is_ok() {
-                    continue;
-                } else {
-                    return Ok(());
+            match event {
+                Ok(event) => match event {
+                    InboundMessage::Ping => tx.send(session.encode(&OutboundMessage::Pong))?,
+                    _ => {}
+                },
+                Err(e) => {
+                    if handle_error(e, &tx).await.is_ok() {
+                        continue;
+                    } else {
+                        return Ok(());
+                    }
                 }
             }
         }
-    }
+
+        Ok(())
+    }());
+
+    drop(tokio::try_join!(tx_task, upstream_task, client_task));
 
     Ok(())
 }

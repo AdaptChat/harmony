@@ -16,6 +16,7 @@ use axum::{
     routing::get,
     Router,
 };
+use deadpool_lapin::Runtime;
 use essence::db::connect;
 
 #[tokio::main]
@@ -31,6 +32,13 @@ async fn main() {
     connect(&env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"))
         .await
         .expect("Failed to connect to db");
+
+    let pool = deadpool_lapin::Config {
+        url: Some("amqp://127.0.0.1:5672".to_string()),
+        ..Default::default()
+    }
+    .create_pool(Some(Runtime::Tokio1))
+    .expect("Failed to create pool");
 
     let app = Router::new()
         .route(
@@ -52,6 +60,7 @@ async fn main() {
                                             .parse()
                                             .unwrap_or_else(|_| ip.ip())
                                     }),
+                                    pool.get().await.expect("Failed to acquire connection"),
                                 )
                                 .await,
                             );

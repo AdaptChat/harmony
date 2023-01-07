@@ -44,8 +44,14 @@ impl From<essence::Error> for Error {
 }
 
 impl From<tokio::sync::mpsc::error::SendError<Message>> for Error {
-    fn from(value: tokio::sync::mpsc::error::SendError<Message>) -> Self {
+    fn from(_: tokio::sync::mpsc::error::SendError<Message>) -> Self {
         Self::Close("Internal error while message to mpsc".to_string())
+    }
+}
+
+impl From<lapin::Error> for Error {
+    fn from(value: lapin::Error) -> Self {
+        Self::Close(value.to_string())
     }
 }
 

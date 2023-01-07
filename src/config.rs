@@ -29,9 +29,9 @@ const fn default_version() -> u8 {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Connection {
     #[serde(default = "default_version")]
-    version: u8,
+    pub version: u8,
     #[serde(default)]
-    format: MessageFormat,
+    pub format: MessageFormat,
 }
 
 impl Connection {
