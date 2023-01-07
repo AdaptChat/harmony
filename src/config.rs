@@ -78,7 +78,7 @@ impl UserSession {
         let (user_id, _flags) = get_pool()
             .fetch_user_info_by_token(&token)
             .await?
-            .ok_or_else(|| Error::Close("Invalid token".to_string()))?;
+            .ok_or_close("Invalid token".to_string())?;
 
         Ok(Self {
             con_config,
