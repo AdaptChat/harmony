@@ -16,7 +16,7 @@ use crate::{
     error::Result,
 };
 
-pub async fn handle_upsteam(
+pub async fn handle_upstream(
     session: UserSession,
     tx: UnboundedSender<Message>,
     amqp: Object,

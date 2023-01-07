@@ -5,7 +5,7 @@ extern crate log;
 
 mod config;
 mod error;
-mod upsteam;
+mod upstream;
 mod websocket;
 
 use std::{env, net::SocketAddr};

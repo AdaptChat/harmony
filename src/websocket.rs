@@ -10,7 +10,7 @@ use tokio::sync::{mpsc::UnboundedSender, Notify};
 use crate::{
     config::{Connection, UserSession},
     error::{Error, Result},
-    upsteam::handle_upsteam,
+    upstream::handle_upstream,
 };
 
 async fn handle_error(e: Error, tx: &UnboundedSender<Message>) -> Result<()> {
@@ -122,7 +122,7 @@ pub async fn handle_socket(
 
     let upstream_finished_setup = Arc::new(Notify::new());
 
-    let upstream_task = tokio::spawn(handle_upsteam(
+    let upstream_task = tokio::spawn(handle_upstream(
         session.clone(),
         tx.clone(),
         amqp,
