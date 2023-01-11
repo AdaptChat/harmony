@@ -7,7 +7,7 @@ use futures_util::{future::join_all, TryStreamExt};
 use lapin::{
     options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
-    ExchangeKind,
+    Channel, ExchangeKind,
 };
 use tokio::sync::{mpsc::UnboundedSender, Notify};
 
@@ -15,6 +15,38 @@ use crate::{
     config::{MessageFormat, UserSession},
     error::Result,
 };
+
+async fn subscribe<T: AsRef<str>, U: AsRef<str>, R: AsRef<str>>(
+    channel: &Channel,
+    guild_id: T,
+    session_id: U,
+    user_id: R,
+) -> Result<()> {
+    channel
+        .exchange_declare(
+            guild_id.as_ref(),
+            ExchangeKind::Fanout,
+            ExchangeDeclareOptions {
+                auto_delete: true,
+                ..Default::default()
+            },
+            FieldTable::default(),
+        )
+        .await?;
+
+    // Routing key will be used to determine intent when implemented
+    channel
+        .queue_bind(
+            session_id.as_ref(),
+            guild_id.as_ref(),
+            user_id.as_ref(),
+            QueueBindOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
+
+    Ok(())
+}
 
 pub async fn handle_upstream(
     session: UserSession,
@@ -35,8 +67,9 @@ pub async fn handle_upstream(
         )
         .await?;
 
-    let c = &channel;
+    let sc = &channel;
     let sid = &session.id;
+    let uid = &session.user_id.to_string();
 
     join_all(
         session
@@ -44,35 +77,22 @@ pub async fn handle_upstream(
             .await?
             .into_iter()
             .map(async move |guild| -> Result<()> {
-                let id = guild.partial.id.to_string();
-
-                c.exchange_declare(
-                    &id,
-                    ExchangeKind::Fanout,
-                    ExchangeDeclareOptions {
-                        auto_delete: true,
-                        ..Default::default()
-                    },
-                    FieldTable::default(),
-                )
-                .await?;
-
-                // Routing key will be used to determine intent when implemented
-                c.queue_bind(
-                    sid,
-                    &id,
-                    sid,
-                    QueueBindOptions::default(),
-                    FieldTable::default(),
-                )
-                .await?;
+                subscribe(sc, guild.partial.id.to_string(), sid, uid).await?;
 
                 Ok(())
             }),
     )
     .await;
 
-    finished.notify_one();
+    channel
+        .queue_bind(
+            sid,
+            "events",
+            &session.user_id.to_string(),
+            QueueBindOptions::default(),
+            FieldTable::default(),
+        )
+        .await?;
 
     let mut consumer = channel
         .basic_consume(
@@ -83,17 +103,44 @@ pub async fn handle_upstream(
         )
         .await?;
 
-    while let Ok(Some(m)) = consumer.try_next().await {
-        tx.send(match session.format {
-            MessageFormat::Json => Message::Text(
-                simd_json::to_string(
-                    &rmp_serde::from_slice::<OutboundMessage>(&m.data)
-                        .expect("Server sent unserializable data"),
-                )
-                .expect("Server sent unserializable data"),
-            ),
-            MessageFormat::Msgpack => Message::Binary(m.data),
-        })?;
-    }
+    let format = session.format.clone();
+    let sc = channel.clone();
+    let sid = session.id.clone();
+
+    finished.notify_one();
+
+    let main_recv = tokio::spawn(async move || -> Result<()> {
+        let ref_sid = &sid;
+
+        while let Ok(Some(m)) = consumer.try_next().await {
+            let b = bincode::deserialize::<OutboundMessage>(&m.data)
+                .expect("Server sent unserializable data");
+
+            tx.send(match format {
+                MessageFormat::Json => Message::Text(
+                    simd_json::to_string(&b).expect("Server sent unserializable data"),
+                ),
+                MessageFormat::Msgpack => Message::Binary(
+                    rmp_serde::to_vec_named(&b).expect("Server sent unserializable data"),
+                ),
+            })
+            .expect("tx dropped");
+
+            match b {
+                OutboundMessage::GuildCreate { guild } => {
+                    let id = guild.partial.id.to_string();
+
+                    subscribe(&sc, id, ref_sid, session.user_id.to_string()).await?;
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }());
+
+    // There might be another task in the future
+    drop(main_recv.await);
+
     Ok(())
 }

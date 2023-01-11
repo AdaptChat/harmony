@@ -22,3 +22,4 @@ governor = { version = "0.5", default-features = false, features = ["std", "quan
 dotenv = "0"
 lapin = "2"
 deadpool-lapin = "0"
+bincode = "1"

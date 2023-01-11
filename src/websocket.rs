@@ -114,7 +114,7 @@ pub async fn handle_socket(
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
-    let tx_task = tokio::spawn(async move {
+    let rx_task = tokio::spawn(async move {
         while let Some(m) = rx.recv().await {
             sender.send(m).await.unwrap();
         }
@@ -175,7 +175,7 @@ pub async fn handle_socket(
         Ok(())
     }());
 
-    drop(tokio::try_join!(tx_task, upstream_task, client_task));
+    drop(tokio::try_join!(rx_task, upstream_task, client_task));
 
     Ok(())
 }

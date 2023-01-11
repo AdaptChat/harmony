@@ -18,6 +18,7 @@ use axum::{
 };
 use deadpool_lapin::Runtime;
 use essence::db::connect;
+use lapin::{options::ExchangeDeclareOptions, types::FieldTable, ExchangeKind};
 
 #[tokio::main]
 async fn main() {
@@ -39,6 +40,21 @@ async fn main() {
     }
     .create_pool(Some(Runtime::Tokio1))
     .expect("Failed to create pool");
+
+    pool.get()
+        .await
+        .expect("Failed to acquire connection")
+        .create_channel()
+        .await
+        .expect("Failed to create channel")
+        .exchange_declare(
+            "events",
+            ExchangeKind::Topic,
+            ExchangeDeclareOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .expect("Failed to create global event exchange");
 
     let app = Router::new()
         .route(
