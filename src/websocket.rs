@@ -124,7 +124,7 @@ pub async fn handle_socket(
 
     let upstream_finished_setup = Arc::new(Notify::new());
 
-    let upstream_task = handle_upstream(
+    let upstream_task =handle_upstream(
         session.clone(),
         tx.clone(),
         amqp,
@@ -133,9 +133,16 @@ pub async fn handle_socket(
 
     let ratelimiter =
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
+    
+    let tx_s = tx.clone();
+    let ready_event = session.encode(&close_if_error!(session.get_ready_event().await, &tx));
 
-    upstream_finished_setup.notified().await;
-    tx.send(session.encode(&close_if_error!(session.get_ready_event().await, &tx)))?;
+    tokio::spawn(async move || -> Result<()> {
+        upstream_finished_setup.notified().await;
+        tx_s.clone().send(ready_event)?;
+
+        Ok(())
+    }());
 
     let client_task = async move || -> Result<()> {
         while let Ok(Some(mut message)) = receiver.try_next().await {
