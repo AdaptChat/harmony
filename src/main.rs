@@ -66,20 +66,21 @@ async fn main() {
                  ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
                     ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {e:?}"))
                         .on_upgrade(move |socket| async move {
-                            drop(
-                                websocket::handle_socket(
-                                    socket,
-                                    params.0,
-                                    headers.get("cf-connecting-ip").map_or(ip.ip(), |v| {
-                                        v.to_str()
-                                            .unwrap_or_default()
-                                            .parse()
-                                            .unwrap_or_else(|_| ip.ip())
-                                    }),
-                                    pool.get().await.expect("Failed to acquire connection"),
-                                )
-                                .await,
-                            );
+                            if let Err(e) = websocket::handle_socket(
+                                socket,
+                                params.0,
+                                headers.get("cf-connecting-ip").map_or(ip.ip(), |v| {
+                                    v.to_str()
+                                        .unwrap_or_default()
+                                        .parse()
+                                        .unwrap_or_else(|_| ip.ip())
+                                }),
+                                pool.get().await.expect("Failed to acquire connection"),
+                            )
+                            .await
+                            {
+                                error!("Websocket handle failed: {e}")
+                            }
                         })
                 },
             ),

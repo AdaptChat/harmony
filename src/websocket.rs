@@ -175,7 +175,12 @@ pub async fn handle_socket(
         Ok(())
     }());
 
-    drop(tokio::try_join!(rx_task, upstream_task, client_task));
+    match tokio::try_join!(rx_task, upstream_task, client_task)? {
+        (_, upstream, client) => {
+            upstream?;
+            client?;
+        }
+    }
 
     Ok(())
 }

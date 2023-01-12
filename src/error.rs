@@ -49,6 +49,12 @@ impl From<tokio::sync::mpsc::error::SendError<Message>> for Error {
     }
 }
 
+impl From<tokio::task::JoinError> for Error {
+    fn from(value: tokio::task::JoinError) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
 impl From<lapin::Error> for Error {
     fn from(value: lapin::Error) -> Self {
         Self::Close(value.to_string())

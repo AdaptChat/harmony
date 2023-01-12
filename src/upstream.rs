@@ -115,6 +115,8 @@ pub async fn handle_upstream(
         while let Ok(Some(m)) = consumer.try_next().await {
             let b = bincode::deserialize::<OutboundMessage>(&m.data)
                 .expect("Server sent unserializable data");
+            
+            debug!("Got event from upstream: {b:?}");
 
             tx.send(match format {
                 MessageFormat::Json => Message::Text(
@@ -139,8 +141,10 @@ pub async fn handle_upstream(
         Ok(())
     }());
 
+    debug!("Main recv started");
+
     // There might be another task in the future
-    drop(main_recv.await);
+    main_recv.await??;
 
     Ok(())
 }
