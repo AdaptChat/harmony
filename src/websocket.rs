@@ -114,20 +114,22 @@ pub async fn handle_socket(
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
 
-    let rx_task = tokio::spawn(async move {
+    let rx_task = async move || -> Result<()> {
         while let Some(m) = rx.recv().await {
             sender.send(m).await.unwrap();
         }
-    });
+
+        Ok(())
+    };
 
     let upstream_finished_setup = Arc::new(Notify::new());
 
-    let upstream_task = tokio::spawn(handle_upstream(
+    let upstream_task = handle_upstream(
         session.clone(),
         tx.clone(),
         amqp,
         upstream_finished_setup.clone(),
-    ));
+    );
 
     let ratelimiter =
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
@@ -135,7 +137,7 @@ pub async fn handle_socket(
     upstream_finished_setup.notified().await;
     tx.send(session.encode(&close_if_error!(session.get_ready_event().await, &tx)))?;
 
-    let client_task = tokio::spawn(async move || -> Result<()> {
+    let client_task = async move || -> Result<()> {
         while let Ok(Some(mut message)) = receiver.try_next().await {
             if let Message::Close(_) = &message {
                 return Ok(());
@@ -173,14 +175,9 @@ pub async fn handle_socket(
         }
 
         Ok(())
-    }());
+    };
 
-    match tokio::try_join!(rx_task, upstream_task, client_task)? {
-        (_, upstream, client) => {
-            upstream?;
-            client?;
-        }
-    }
+    tokio::try_join!(rx_task(), upstream_task, client_task())?;
 
     Ok(())
 }
