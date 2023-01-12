@@ -113,8 +113,9 @@ pub async fn handle_upstream(
         let ref_sid = &sid;
 
         while let Ok(Some(m)) = consumer.try_next().await {
-            let b = bincode::deserialize::<OutboundMessage>(&m.data)
-                .expect("Server sent unserializable data");
+            let b = bincode::decode_from_slice::<OutboundMessage, _>(&m.data, bincode::config::standard())
+                .expect("Server sent unserializable data")
+                .0;
             
             debug!("Got event from upstream: {b:?}");
 
