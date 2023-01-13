@@ -3,24 +3,25 @@ use std::sync::Arc;
 use axum::extract::ws::Message;
 use deadpool_lapin::Object;
 use essence::ws::OutboundMessage;
+use flume::Sender;
 use futures_util::{future::join_all, TryStreamExt};
 use lapin::{
     options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
     Channel, ExchangeKind,
 };
-use tokio::sync::{mpsc::UnboundedSender, Notify};
+use tokio::sync::Notify;
 
 use crate::{
     config::{MessageFormat, UserSession},
     error::Result,
 };
 
-async fn subscribe<T: AsRef<str>, U: AsRef<str>, R: AsRef<str>>(
+async fn subscribe(
     channel: &Channel,
-    guild_id: T,
-    session_id: U,
-    user_id: R,
+    guild_id: impl AsRef<str>,
+    session_id: impl AsRef<str>,
+    user_id: impl AsRef<str>,
 ) -> Result<()> {
     channel
         .exchange_declare(
@@ -50,7 +51,7 @@ async fn subscribe<T: AsRef<str>, U: AsRef<str>, R: AsRef<str>>(
 
 pub async fn handle_upstream(
     session: UserSession,
-    tx: UnboundedSender<Message>,
+    tx: Sender<Message>,
     amqp: Object,
     finished: Arc<Notify>,
 ) -> Result<()> {

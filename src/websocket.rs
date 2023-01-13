@@ -3,9 +3,10 @@ use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
 use deadpool_lapin::Object;
 use essence::ws::{InboundMessage, OutboundMessage};
+use flume::Sender;
 use futures_util::{stream::StreamExt, SinkExt, TryStreamExt};
 use governor::{Quota, RateLimiter};
-use tokio::sync::{mpsc::UnboundedSender, Notify};
+use tokio::sync::Notify;
 
 use crate::{
     config::{Connection, UserSession},
@@ -13,7 +14,7 @@ use crate::{
     upstream::handle_upstream,
 };
 
-async fn handle_error(e: Error, tx: &UnboundedSender<Message>) -> Result<()> {
+fn handle_error(e: Error, tx: &Sender<Message>) -> Result<()> {
     match e {
         Error::Close(e) => {
             tx.send(Message::Close(Some(CloseFrame {
@@ -31,7 +32,7 @@ macro_rules! close_if_error {
     ($func:expr, $sender:expr) => {{
         match $func {
             Ok(val) => val,
-            Err(e) => return handle_error(e, $sender).await,
+            Err(e) => return handle_error(e, $sender),
         }
     }};
 }
@@ -112,11 +113,11 @@ pub async fn handle_socket(
         }
     };
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Message>();
+    let (tx, rx) = flume::unbounded::<Message>();
 
     let rx_task = async move || -> Result<()> {
-        while let Some(m) = rx.recv().await {
-            sender.send(m).await.unwrap();
+        while let Ok(m) = rx.recv_async().await {
+            sender.send(m).await?;
         }
 
         Ok(())
@@ -124,7 +125,7 @@ pub async fn handle_socket(
 
     let upstream_finished_setup = Arc::new(Notify::new());
 
-    let upstream_task =handle_upstream(
+    let upstream_task = handle_upstream(
         session.clone(),
         tx.clone(),
         amqp,
@@ -133,13 +134,13 @@ pub async fn handle_socket(
 
     let ratelimiter =
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
-    
+
     let tx_s = tx.clone();
     let ready_event = session.encode(&close_if_error!(session.get_ready_event().await, &tx));
 
     tokio::spawn(async move || -> Result<()> {
         upstream_finished_setup.notified().await;
-        tx_s.clone().send(ready_event)?;
+        tx_s.send(ready_event)?;
 
         Ok(())
     }());
@@ -172,7 +173,7 @@ pub async fn handle_socket(
                     _ => {}
                 },
                 Err(e) => {
-                    if handle_error(e, &tx).await.is_ok() {
+                    if handle_error(e, &tx).is_ok() {
                         continue;
                     } else {
                         return Ok(());

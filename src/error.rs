@@ -43,8 +43,8 @@ impl From<essence::Error> for Error {
     }
 }
 
-impl From<tokio::sync::mpsc::error::SendError<Message>> for Error {
-    fn from(_: tokio::sync::mpsc::error::SendError<Message>) -> Self {
+impl From<flume::SendError<Message>> for Error {
+    fn from(_: flume::SendError<Message>) -> Self {
         Self::Close("Internal error while message to mpsc".to_string())
     }
 }
