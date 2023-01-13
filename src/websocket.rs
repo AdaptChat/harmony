@@ -175,9 +175,9 @@ pub async fn handle_socket(
                 Err(e) => {
                     if handle_error(e, &tx).is_ok() {
                         continue;
-                    } else {
-                        return Ok(());
                     }
+
+                    return Ok(());
                 }
             }
         }

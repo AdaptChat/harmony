@@ -79,7 +79,7 @@ async fn main() {
                             )
                             .await
                             {
-                                error!("Websocket handle failed: {e}")
+                                error!("Websocket handle failed: {e}");
                             }
                         })
                 },

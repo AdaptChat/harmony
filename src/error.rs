@@ -1,7 +1,11 @@
-use std::fmt::Display;
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use axum::extract::ws::Message;
 use essence::db::sqlx;
+use lapin::{acker::Acker, options::BasicNackOptions};
 
 #[derive(Debug)]
 pub enum Error {
@@ -65,7 +69,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Close(e) => f.write_str(e),
-            _ => f.write_str("Error::Ignore"),
+            Self::Ignore => f.write_str("Error::Ignore"),
         }
     }
 }
@@ -79,5 +83,26 @@ pub trait IsNoneExt<T> {
 impl<T> IsNoneExt<T> for Option<T> {
     fn ok_or_close(self, message: impl Into<String>) -> Result<T> {
         self.ok_or_else(|| Error::Close(message.into()))
+    }
+}
+
+pub trait NackExt<T> {
+    fn unwrap_or_nack(self, acker: Arc<Acker>, message: impl AsRef<str>) -> T;
+}
+
+impl<T, E: Debug> NackExt<T> for std::result::Result<T, E> {
+    fn unwrap_or_nack(self, acker: Arc<Acker>, message: impl AsRef<str>) -> T {
+        if let Err(e) = self {
+            tokio::spawn(async move {
+                acker
+                    .nack(BasicNackOptions::default())
+                    .await
+                    .expect("Failed to nack");
+            });
+
+            panic!("{}: {e:?}", message.as_ref())
+        } else {
+            unsafe { self.unwrap_unchecked() }
+        }
     }
 }

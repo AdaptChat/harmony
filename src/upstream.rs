@@ -6,7 +6,10 @@ use essence::ws::OutboundMessage;
 use flume::Sender;
 use futures_util::{future::join_all, TryStreamExt};
 use lapin::{
-    options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
+    options::{
+        BasicAckOptions, BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
+        QueueDeclareOptions,
+    },
     types::FieldTable,
     Channel, ExchangeKind,
 };
@@ -14,7 +17,7 @@ use tokio::sync::Notify;
 
 use crate::{
     config::{MessageFormat, UserSession},
-    error::Result,
+    error::{NackExt, Result},
 };
 
 async fn subscribe(
@@ -104,7 +107,7 @@ pub async fn handle_upstream(
         )
         .await?;
 
-    let format = session.format.clone();
+    let format = session.format;
     let sc = channel.clone();
     let sid = session.id.clone();
 
@@ -114,33 +117,44 @@ pub async fn handle_upstream(
         let ref_sid = &sid;
 
         while let Ok(Some(m)) = consumer.try_next().await {
-            let b = bincode::decode_from_slice::<OutboundMessage, _>(
+            let b_res = bincode::decode_from_slice::<OutboundMessage, _>(
                 &m.data,
                 bincode::config::standard(),
-            )
-            .expect("Server sent unserializable data")
-            .0;
+            );
+            let acker = Arc::new(m.acker);
+
+            let b = b_res
+                .unwrap_or_nack(acker.clone(), "Server sent unserializable data")
+                .0;
 
             debug!("Got event from upstream: {b:?}");
 
             tx.send(match format {
                 MessageFormat::Json => Message::Text(
-                    simd_json::to_string(&b).expect("Server sent unserializable data"),
+                    simd_json::to_string(&b)
+                        .unwrap_or_nack(acker.clone(), "Server sent unserializable data"),
                 ),
                 MessageFormat::Msgpack => Message::Binary(
-                    rmp_serde::to_vec_named(&b).expect("Server sent unserializable data"),
+                    rmp_serde::to_vec_named(&b)
+                        .unwrap_or_nack(acker.clone(), "Server sent unserializable data"),
                 ),
             })
-            .expect("tx dropped");
+            .unwrap_or_nack(acker.clone(), "tx dropped");
 
             match b {
                 OutboundMessage::GuildCreate { guild } => {
                     let id = guild.partial.id.to_string();
 
-                    subscribe(&sc, id, ref_sid, session.user_id.to_string()).await?;
+                    subscribe(&sc, id, ref_sid, session.user_id.to_string())
+                        .await
+                        .unwrap_or_nack(acker.clone(), "Failed to subscribe to guild exchange");
                 }
                 _ => (),
             }
+
+            tokio::spawn(async move {
+                drop(acker.ack(BasicAckOptions::default()).await);
+            });
         }
 
         Ok(())
