@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display};
 
 use axum::extract::ws::Message;
 use essence::db::sqlx;
@@ -87,18 +84,16 @@ impl<T> IsNoneExt<T> for Option<T> {
 }
 
 pub trait NackExt<T> {
-    fn unwrap_or_nack(self, acker: Arc<Acker>, message: impl AsRef<str>) -> T;
+    async fn unwrap_or_nack(self, acker: &Acker, message: impl AsRef<str>) -> T;
 }
 
 impl<T, E: Debug> NackExt<T> for std::result::Result<T, E> {
-    fn unwrap_or_nack(self, acker: Arc<Acker>, message: impl AsRef<str>) -> T {
+    async fn unwrap_or_nack(self, acker: &Acker, message: impl AsRef<str>) -> T {
         if let Err(e) = self {
-            tokio::spawn(async move {
-                acker
-                    .nack(BasicNackOptions::default())
-                    .await
-                    .expect("Failed to nack");
-            });
+            acker
+                .nack(BasicNackOptions::default())
+                .await
+                .expect("Failed to nack");
 
             panic!("{}: {e:?}", message.as_ref())
         } else {

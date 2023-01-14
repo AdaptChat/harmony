@@ -1,10 +1,14 @@
+#![allow(incomplete_features)]
+
 #![feature(async_closure)]
+#![feature(async_fn_in_trait)]
 
 #[macro_use]
 extern crate log;
 
 mod config;
 mod error;
+mod recv;
 mod upstream;
 mod websocket;
 

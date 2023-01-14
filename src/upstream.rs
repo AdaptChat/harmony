@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use axum::extract::ws::Message;
 use deadpool_lapin::Object;
-use essence::ws::OutboundMessage;
 use flume::Sender;
-use futures_util::{future::join_all, TryStreamExt};
+use futures_util::{future::join_all};
 use lapin::{
     options::{
-        BasicAckOptions, BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
+        BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
         QueueDeclareOptions,
     },
     types::FieldTable,
@@ -16,11 +15,12 @@ use lapin::{
 use tokio::sync::Notify;
 
 use crate::{
-    config::{MessageFormat, UserSession},
-    error::{NackExt, Result},
+    config::UserSession,
+    error::Result,
+    recv,
 };
 
-async fn subscribe(
+pub async fn subscribe(
     channel: &Channel,
     guild_id: impl AsRef<str>,
     session_id: impl AsRef<str>,
@@ -59,10 +59,12 @@ pub async fn handle_upstream(
     finished: Arc<Notify>,
 ) -> Result<()> {
     let channel = amqp.create_channel().await?;
+    let user_id = session.user_id.to_string();
+    let session_id = session.id.clone();
 
     channel
         .queue_declare(
-            &session.id,
+            &session_id,
             QueueDeclareOptions {
                 auto_delete: true,
                 ..Default::default()
@@ -71,99 +73,48 @@ pub async fn handle_upstream(
         )
         .await?;
 
-    let sc = &channel;
-    let sid = &session.id;
-    let uid = &session.user_id.to_string();
+    {
+        let sc = &channel;
+        let ref_user_id = &user_id;
+        let ref_session_id = &session_id;
 
-    join_all(
-        session
-            .get_guilds()
-            .await?
-            .into_iter()
-            .map(async move |guild| -> Result<()> {
-                subscribe(sc, guild.partial.id.to_string(), sid, uid).await?;
+        join_all(
+            session
+                .get_guilds()
+                .await?
+                .into_iter()
+                .map(async move |guild| -> Result<()> {
+                    subscribe(sc, guild.partial.id.to_string(), ref_session_id, ref_user_id).await?;
 
-                Ok(())
-            }),
-    )
-    .await;
+                    Ok(())
+                }),
+        )
+        .await;
+    }
 
     channel
         .queue_bind(
-            sid,
+            &session_id,
             "events",
-            &session.user_id.to_string(),
+            &user_id,
             QueueBindOptions::default(),
             FieldTable::default(),
         )
         .await?;
 
-    let mut consumer = channel
+    let consumer = channel
         .basic_consume(
-            &session.id,
-            &format!("consumer-{}", &session.id),
+            &session_id,
+            &format!("consumer-{}-{}", &user_id, &session.id),
             BasicConsumeOptions::default(),
             FieldTable::default(),
         )
         .await?;
 
-    let format = session.format;
-    let sc = channel.clone();
-    let sid = session.id.clone();
-
     finished.notify_one();
+    debug!("Starting main recv");
 
-    let main_recv = tokio::spawn(async move || -> Result<()> {
-        let ref_sid = &sid;
-
-        while let Ok(Some(m)) = consumer.try_next().await {
-            let b_res = bincode::decode_from_slice::<OutboundMessage, _>(
-                &m.data,
-                bincode::config::standard(),
-            );
-            let acker = Arc::new(m.acker);
-
-            let b = b_res
-                .unwrap_or_nack(acker.clone(), "Server sent unserializable data")
-                .0;
-
-            debug!("Got event from upstream: {b:?}");
-
-            tx.send(match format {
-                MessageFormat::Json => Message::Text(
-                    simd_json::to_string(&b)
-                        .unwrap_or_nack(acker.clone(), "Server sent unserializable data"),
-                ),
-                MessageFormat::Msgpack => Message::Binary(
-                    rmp_serde::to_vec_named(&b)
-                        .unwrap_or_nack(acker.clone(), "Server sent unserializable data"),
-                ),
-            })
-            .unwrap_or_nack(acker.clone(), "tx dropped");
-
-            match b {
-                OutboundMessage::GuildCreate { guild } => {
-                    let id = guild.partial.id.to_string();
-
-                    subscribe(&sc, id, ref_sid, session.user_id.to_string())
-                        .await
-                        .unwrap_or_nack(acker.clone(), "Failed to subscribe to guild exchange");
-                }
-                _ => (),
-            }
-
-            tokio::spawn(async move {
-                drop(acker.ack(BasicAckOptions::default()).await);
-            });
-        }
-
-        Ok(())
-    }());
-
-    debug!("Main recv started");
-
-    // There might be another task in the future
-    main_recv.await??;
+    recv::process(consumer, channel, tx, session.format, session_id, user_id).await?;
 
     Ok(())
 }
