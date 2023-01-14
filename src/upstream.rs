@@ -3,22 +3,15 @@ use std::sync::Arc;
 use axum::extract::ws::Message;
 use deadpool_lapin::Object;
 use flume::Sender;
-use futures_util::{future::join_all};
+use futures_util::future::join_all;
 use lapin::{
-    options::{
-        BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
-        QueueDeclareOptions,
-    },
+    options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
     Channel, ExchangeKind,
 };
 use tokio::sync::Notify;
 
-use crate::{
-    config::UserSession,
-    error::Result,
-    recv,
-};
+use crate::{config::UserSession, error::Result, recv};
 
 pub async fn subscribe(
     channel: &Channel,
@@ -84,7 +77,13 @@ pub async fn handle_upstream(
                 .await?
                 .into_iter()
                 .map(async move |guild| -> Result<()> {
-                    subscribe(sc, guild.partial.id.to_string(), ref_session_id, ref_user_id).await?;
+                    subscribe(
+                        sc,
+                        guild.partial.id.to_string(),
+                        ref_session_id,
+                        ref_user_id,
+                    )
+                    .await?;
 
                     Ok(())
                 }),
