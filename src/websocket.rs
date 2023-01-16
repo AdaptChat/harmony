@@ -67,7 +67,7 @@ pub async fn handle_socket(
 
             match event {
                 Ok(InboundMessage::Identify { token }) => {
-                    match UserSession::new_with_token(con, token).await {
+                    match UserSession::new_with_token(con, token, ip).await {
                         Ok(val) => val,
                         Err(e) => {
                             return Ok(sender

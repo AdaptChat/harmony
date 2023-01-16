@@ -1,16 +1,24 @@
-use std::ops::Deref;
+use std::{ops::Deref, net::IpAddr, sync::OnceLock};
 
 use axum::extract::ws::Message;
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use essence::{
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
     models::Guild,
     ws::OutboundMessage,
 };
-use rand::distributions::{Alphanumeric, DistString};
+use ring::rand::{SystemRandom, SecureRandom};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IsNoneExt, Result};
+
+static RNG: OnceLock<SystemRandom> = OnceLock::new();
+
+#[inline]
+fn get_rand() -> &'static SystemRandom {
+    RNG.get_or_init(SystemRandom::new)
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -74,7 +82,7 @@ pub struct UserSession {
 }
 
 impl UserSession {
-    pub async fn new_with_token(con_config: Connection, token: String) -> Result<Self> {
+    pub async fn new_with_token(con_config: Connection, token: String, ip: IpAddr) -> Result<Self> {
         let (user_id, _flags) = get_pool()
             .fetch_user_info_by_token(&token)
             .await?
@@ -84,7 +92,27 @@ impl UserSession {
             con_config,
             user_id,
             token,
-            id: Alphanumeric.sample_string(&mut rand::thread_rng(), 32),
+            id: {
+                let mut s = String::with_capacity(40);
+
+                STANDARD_NO_PAD.encode_string(user_id.to_be_bytes(), &mut s);
+                s.push('.');
+
+                match ip {
+                    IpAddr::V4(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
+                    IpAddr::V6(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s)
+                };
+                s.push('.');
+
+                STANDARD_NO_PAD.encode_string({
+                    let mut buf = vec![0; 40 - s.len()];
+                    get_rand().fill(&mut buf).expect("Failed to fill");
+
+                    buf
+                }, &mut s);
+
+                STANDARD_NO_PAD.encode(s.as_bytes())
+            },
         })
     }
 

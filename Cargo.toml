@@ -16,7 +16,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros",
 essence = { git = "https://github.com/AdaptChat/essence", features = ["client", "db", "bincode"] }
 pretty_env_logger = "0.4"
 log = "0.4"
-rand = "0.8"
 tower-http = { version = "0.3", default-features = false, features = ["trace"] }
 governor = { version = "0.5", default-features = false, features = ["std", "quanta"] }
 dotenv = "0"
@@ -24,3 +23,5 @@ lapin = "2"
 deadpool-lapin = "0"
 bincode = "2.0.0-rc.2"
 flume = "0.10"
+base64 = "0.21"
+ring = "0.16.20"
