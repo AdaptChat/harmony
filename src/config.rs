@@ -1,5 +1,6 @@
 use std::{net::IpAddr, ops::Deref, sync::OnceLock};
 
+use ahash::AHashSet;
 use axum::extract::ws::Message;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use essence::{
@@ -10,7 +11,6 @@ use essence::{
     ws::OutboundMessage,
 };
 use ring::rand::{SecureRandom, SystemRandom};
-use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IsNoneExt, Result};
@@ -81,7 +81,7 @@ pub struct UserSession {
     pub token: String,
     pub id: String,
     pub user_id: u64,
-    pub hidden_channels: FxHashSet<u64>,
+    pub hidden_channels: AHashSet<u64>,
 }
 
 impl UserSession {
@@ -138,7 +138,7 @@ impl UserSession {
                     STANDARD_NO_PAD.encode(s.as_bytes())
                 },
                 hidden_channels: {
-                    let mut hidden = FxHashSet::default();
+                    let mut hidden = AHashSet::default();
 
                     for guild in &guilds {
                         if guild.partial.owner_id == user_id {
