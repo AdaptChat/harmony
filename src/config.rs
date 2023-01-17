@@ -1,14 +1,16 @@
-use std::{ops::Deref, net::IpAddr, sync::OnceLock};
+use std::{net::IpAddr, ops::Deref, sync::OnceLock};
 
 use axum::extract::ws::Message;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use essence::{
+    calculate_permissions,
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
-    models::Guild,
+    models::{Guild, Permissions},
     ws::OutboundMessage,
 };
-use ring::rand::{SystemRandom, SecureRandom};
+use ring::rand::{SecureRandom, SystemRandom};
+use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, IsNoneExt, Result};
@@ -79,63 +81,106 @@ pub struct UserSession {
     pub token: String,
     pub id: String,
     pub user_id: u64,
+    pub hidden_channels: FxHashSet<u64>,
 }
 
 impl UserSession {
-    pub async fn new_with_token(con_config: Connection, token: String, ip: IpAddr) -> Result<Self> {
-        let (user_id, _flags) = get_pool()
-            .fetch_user_info_by_token(&token)
-            .await?
-            .ok_or_else(|| Error::Close("Invalid token".to_string()))?;
-
-        Ok(Self {
-            con_config,
-            user_id,
-            token,
-            id: {
-                let mut s = String::with_capacity(40);
-
-                STANDARD_NO_PAD.encode_string(user_id.to_be_bytes(), &mut s);
-                s.push('.');
-
-                match ip {
-                    IpAddr::V4(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
-                    IpAddr::V6(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s)
-                };
-                s.push('.');
-
-                STANDARD_NO_PAD.encode_string({
-                    let mut buf = vec![0; 40 - s.len()];
-                    get_rand().fill(&mut buf).expect("Failed to fill");
-
-                    buf
-                }, &mut s);
-
-                STANDARD_NO_PAD.encode(s.as_bytes())
-            },
-        })
-    }
-
-    pub async fn get_ready_event(&self) -> Result<OutboundMessage> {
+    pub async fn new_with_token(
+        con_config: Connection,
+        token: String,
+        ip: IpAddr,
+    ) -> Result<(Self, Vec<Guild>)> {
         let db = get_pool();
 
-        let (user, guilds) = tokio::join!(
-            db.fetch_client_user_by_id(self.user_id),
-            db.fetch_all_guilds_for_user(
-                self.user_id,
+        let (user_id, _flags) = db
+            .fetch_user_info_by_token(&token)
+            .await?
+            .ok_or_close("Invalid token")?;
+
+        let guilds = db
+            .fetch_all_guilds_for_user(
+                user_id,
                 GetGuildQuery {
                     channels: true,
                     members: true,
-                    roles: true
-                }
+                    roles: true,
+                },
             )
-        );
-        let user = user?.ok_or_close("User does not exist")?;
+            .await?;
+
+        Ok((
+            Self {
+                con_config,
+                user_id,
+                token,
+                id: {
+                    let mut s = String::with_capacity(40);
+
+                    STANDARD_NO_PAD.encode_string(user_id.to_be_bytes(), &mut s);
+                    s.push('.');
+
+                    match ip {
+                        IpAddr::V4(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
+                        IpAddr::V6(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
+                    };
+                    s.push('.');
+
+                    STANDARD_NO_PAD.encode_string(
+                        {
+                            let mut buf = vec![0; 40 - s.len()];
+                            get_rand().fill(&mut buf).expect("Failed to fill");
+
+                            buf
+                        },
+                        &mut s,
+                    );
+
+                    STANDARD_NO_PAD.encode(s.as_bytes())
+                },
+                hidden_channels: {
+                    let mut hidden = FxHashSet::default();
+
+                    for guild in &guilds {
+                        if guild.partial.owner_id == user_id {
+                            continue;
+                        }
+
+                        if let Some(channels) = &guild.channels {
+                            let mut roles = guild.roles.clone().unwrap_or_default();
+
+                            for channel in channels {
+                                let perm = calculate_permissions(
+                                    user_id,
+                                    &mut roles,
+                                    Some(&channel.overwrites),
+                                );
+
+                                if !perm.contains(Permissions::VIEW_CHANNEL) {
+                                    hidden.insert(channel.id);
+                                }
+                            }
+                        }
+                    }
+
+                    hidden
+                },
+            },
+            guilds,
+        ))
+    }
+
+    pub async fn get_ready_event(&self, guilds: Vec<Guild>) -> Result<OutboundMessage> {
+        let db = get_pool();
+
+        let user = db
+            .fetch_client_user_by_id(self.user_id)
+            .await?
+            .ok_or_close("User does not exist")?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
             user,
-            guilds: guilds?,
+            guilds: guilds,
         })
     }
 

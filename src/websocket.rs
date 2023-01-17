@@ -55,7 +55,7 @@ pub async fn handle_socket(
     let (mut sender, mut receiver) = socket.split();
     sender.send(con.encode(&OutboundMessage::Hello)).await?;
 
-    let session = {
+    let (session, guilds) = {
         if let Ok(Ok(Some(mut message))) =
             tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
         {
@@ -136,7 +136,7 @@ pub async fn handle_socket(
         unsafe { RateLimiter::direct(Quota::per_minute(NonZeroU32::new_unchecked(1000))) };
 
     let tx_s = tx.clone();
-    let ready_event = session.encode(&close_if_error!(session.get_ready_event().await, &tx));
+    let ready_event = session.encode(&close_if_error!(session.get_ready_event(guilds).await, &tx));
 
     tokio::spawn(async move || -> Result<()> {
         upstream_finished_setup.notified().await;
