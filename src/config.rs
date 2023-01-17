@@ -127,7 +127,7 @@ impl UserSession {
 
                     STANDARD_NO_PAD.encode_string(
                         {
-                            let mut buf = vec![0; 40 - s.len()];
+                            let mut buf = Vec::with_capacity(40 - s.len());
                             get_rand().fill(&mut buf).expect("Failed to fill");
 
                             buf
