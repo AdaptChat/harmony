@@ -5,9 +5,10 @@ use essence::ws::OutboundMessage;
 use flume::Sender;
 use futures_util::TryStreamExt;
 use lapin::{message::Delivery, options::BasicAckOptions, types::FieldTable, Channel, Consumer};
+use tokio::sync::RwLock;
 
 use crate::{
-    config::MessageFormat,
+    config::{MessageFormat, UserSession},
     error::{NackExt, Result},
     upstream,
 };
@@ -19,6 +20,7 @@ async fn handle(
     message_format: MessageFormat,
     session_id: String,
     user_id: String,
+    session: Arc<RwLock<UserSession>>,
 ) -> Result<()> {
     let b_res =
         bincode::decode_from_slice::<OutboundMessage, _>(&m.data, bincode::config::standard());
@@ -50,6 +52,26 @@ async fn handle(
                 )
                 .await?;
         }
+        OutboundMessage::MessageCreate { message } | OutboundMessage::MessageDelete { message } => {
+            if session
+                .read()
+                .await
+                .hidden_channels
+                .contains(&message.channel_id)
+            {
+                return Ok(());
+            }
+        }
+        OutboundMessage::MessageEdit { new, .. } => {
+            if session
+                .read()
+                .await
+                .hidden_channels
+                .contains(&new.channel_id)
+            {
+                return Ok(());
+            }
+        }
         _ => (),
     }
 
@@ -80,6 +102,7 @@ pub async fn process(
     message_format: MessageFormat,
     session_id: impl AsRef<str>,
     user_id: impl AsRef<str>,
+    session: Arc<RwLock<UserSession>>,
 ) -> Result<()> {
     // Channel uses 8 Arcs internally, so instead of cloning
     // 8 Arcs everytime there is an event, cloning one is more efficent
@@ -93,6 +116,7 @@ pub async fn process(
             message_format,
             session_id.as_ref().to_string(),
             user_id.as_ref().to_string(),
+            session.clone(),
         ));
     }
 

@@ -9,7 +9,7 @@ use lapin::{
     types::FieldTable,
     Channel, ExchangeKind,
 };
-use tokio::sync::Notify;
+use tokio::sync::{Notify, RwLock};
 
 use crate::{config::UserSession, error::Result, recv};
 
@@ -113,7 +113,16 @@ pub async fn handle_upstream(
     finished.notify_one();
     debug!("Starting main recv");
 
-    recv::process(consumer, channel, tx, session.format, session_id, user_id).await?;
+    recv::process(
+        consumer,
+        channel,
+        tx,
+        session.format,
+        session_id,
+        user_id,
+        Arc::new(RwLock::new(session)),
+    )
+    .await?;
 
     Ok(())
 }
