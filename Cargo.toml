@@ -25,4 +25,10 @@ deadpool-lapin = "0"
 bincode = "2.0.0-rc.2"
 flume = "0.10"
 base64 = "0.21"
-ring = "0.16.20"
+ring = "0.16"
+
+[profile.release]
+lto = "fat"
+
+[profile.ci]
+debug = 2
