@@ -32,3 +32,5 @@ lto = "fat"
 
 [profile.ci]
 debug = 2
+inherits = "dev"
+
