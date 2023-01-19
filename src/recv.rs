@@ -52,7 +52,7 @@ async fn handle(
                 )
                 .await?;
         }
-        OutboundMessage::MessageCreate { message } | OutboundMessage::MessageDelete { message } => {
+        OutboundMessage::MessageCreate { message } => {
             if session
                 .read()
                 .await
@@ -62,12 +62,13 @@ async fn handle(
                 return Ok(());
             }
         }
-        OutboundMessage::MessageEdit { new, .. } => {
+        // FIXME: MessageDelete
+        OutboundMessage::MessageUpdate { after, .. } => {
             if session
                 .read()
                 .await
                 .hidden_channels
-                .contains(&new.channel_id)
+                .contains(&after.channel_id)
             {
                 return Ok(());
             }

@@ -4,7 +4,7 @@ use ahash::AHashSet;
 use axum::extract::ws::Message;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use essence::{
-    calculate_permissions,
+    calculate_permissions_sorted,
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
     models::{Guild, Permissions},
@@ -147,11 +147,12 @@ impl UserSession {
 
                         if let Some(channels) = &guild.channels {
                             let mut roles = guild.roles.clone().unwrap_or_default();
+                            roles.sort_by_key(|r| r.position);
 
                             for channel in channels {
-                                let perm = calculate_permissions(
+                                let perm = calculate_permissions_sorted(
                                     user_id,
-                                    &mut roles,
+                                    &roles,
                                     Some(&channel.overwrites),
                                 );
 
