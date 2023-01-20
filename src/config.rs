@@ -114,7 +114,7 @@ impl UserSession {
                 user_id,
                 token,
                 id: {
-                    let mut s = String::with_capacity(40);
+                    let mut s = String::with_capacity(100);
 
                     STANDARD_NO_PAD.encode_string(user_id.to_be_bytes(), &mut s);
                     s.push('.');
@@ -127,7 +127,7 @@ impl UserSession {
 
                     STANDARD_NO_PAD.encode_string(
                         {
-                            let mut buf = Vec::with_capacity(40 - s.len());
+                            let mut buf = Vec::with_capacity(60 - s.len());
                             get_rand().fill(&mut buf).expect("Failed to fill");
 
                             buf
