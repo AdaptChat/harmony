@@ -113,11 +113,11 @@ impl UserSession {
                 user_id,
                 token,
                 id: STANDARD_NO_PAD.encode({
-                        let mut buf = [0; 16];
-                        get_rand().fill(&mut buf).expect("Failed to fill");
+                    let mut buf = [0; 16];
+                    get_rand().fill(&mut buf).expect("Failed to fill");
 
-                        buf
-                    }),
+                    buf
+                }),
                 hidden_channels: {
                     let mut hidden = AHashSet::default();
 

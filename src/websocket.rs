@@ -130,7 +130,7 @@ pub async fn handle_socket(
         tx.clone(),
         amqp,
         upstream_finished_setup.clone(),
-        ip
+        ip,
     );
 
     let ratelimiter =
@@ -147,7 +147,9 @@ pub async fn handle_socket(
     }());
 
     let client_task = async move || -> Result<()> {
-        while let Ok(Some(mut message)) = receiver.try_next().await {
+        while let Ok(Ok(Some(mut message))) =
+            tokio::time::timeout(Duration::from_secs(30), receiver.try_next()).await
+        {
             if let Message::Close(_) = &message {
                 return Ok(());
             }

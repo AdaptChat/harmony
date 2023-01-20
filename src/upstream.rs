@@ -1,4 +1,4 @@
-use std::{sync::Arc, net::IpAddr};
+use std::{net::IpAddr, sync::Arc};
 
 use axum::extract::ws::Message;
 use deadpool_lapin::Object;
@@ -50,7 +50,7 @@ pub async fn handle_upstream(
     tx: Sender<Message>,
     amqp: Object,
     finished: Arc<Notify>,
-    ip: IpAddr
+    ip: IpAddr,
 ) -> Result<()> {
     let channel = amqp.create_channel().await?;
     let user_id = session.user_id.to_string();
