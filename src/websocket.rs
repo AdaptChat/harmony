@@ -67,7 +67,7 @@ pub async fn handle_socket(
 
             match event {
                 Ok(InboundMessage::Identify { token }) => {
-                    match UserSession::new_with_token(con, token, ip).await {
+                    match UserSession::new_with_token(con, token).await {
                         Ok(val) => val,
                         Err(e) => {
                             return Ok(sender
@@ -130,6 +130,7 @@ pub async fn handle_socket(
         tx.clone(),
         amqp,
         upstream_finished_setup.clone(),
+        ip
     );
 
     let ratelimiter =

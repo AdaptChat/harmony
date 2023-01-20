@@ -1,4 +1,4 @@
-use std::{net::IpAddr, ops::Deref, sync::OnceLock};
+use std::{ops::Deref, sync::OnceLock};
 
 use ahash::AHashSet;
 use axum::extract::ws::Message;
@@ -88,7 +88,6 @@ impl UserSession {
     pub async fn new_with_token(
         con_config: Connection,
         token: String,
-        ip: IpAddr,
     ) -> Result<(Self, Vec<Guild>)> {
         let db = get_pool();
 
@@ -113,30 +112,12 @@ impl UserSession {
                 con_config,
                 user_id,
                 token,
-                id: {
-                    let mut s = String::with_capacity(100);
+                id: STANDARD_NO_PAD.encode({
+                        let mut buf = [0; 16];
+                        get_rand().fill(&mut buf).expect("Failed to fill");
 
-                    STANDARD_NO_PAD.encode_string(user_id.to_be_bytes(), &mut s);
-                    s.push('.');
-
-                    match ip {
-                        IpAddr::V4(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
-                        IpAddr::V6(ip) => STANDARD_NO_PAD.encode_string(ip.octets(), &mut s),
-                    };
-                    s.push('.');
-
-                    STANDARD_NO_PAD.encode_string(
-                        {
-                            let mut buf = Vec::with_capacity(60 - s.len());
-                            get_rand().fill(&mut buf).expect("Failed to fill");
-
-                            buf
-                        },
-                        &mut s,
-                    );
-
-                    STANDARD_NO_PAD.encode(s.as_bytes())
-                },
+                        buf
+                    }),
                 hidden_channels: {
                     let mut hidden = AHashSet::default();
 
