@@ -8,6 +8,7 @@ extern crate log;
 
 mod config;
 mod error;
+mod presence;
 mod recv;
 mod upstream;
 mod websocket;

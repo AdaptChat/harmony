@@ -1,8 +1,10 @@
 use std::fmt::{Debug, Display};
 
 use axum::extract::ws::Message;
+use deadpool_redis::PoolError;
 use essence::db::sqlx;
 use lapin::{acker::Acker, options::BasicNackOptions};
+use redis::RedisError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -58,6 +60,30 @@ impl From<tokio::task::JoinError> for Error {
 
 impl From<lapin::Error> for Error {
     fn from(value: lapin::Error) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
+impl From<PoolError> for Error {
+    fn from(value: PoolError) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
+impl From<RedisError> for Error {
+    fn from(value: RedisError) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
+impl From<bincode::error::DecodeError> for Error {
+    fn from(value: bincode::error::DecodeError) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
+impl From<bincode::error::EncodeError> for Error {
+    fn from(value: bincode::error::EncodeError) -> Self {
         Self::Close(value.to_string())
     }
 }
