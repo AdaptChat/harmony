@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use axum::extract::ws::Message;
 use essence::ws::OutboundMessage;
 use flume::Sender;
 use futures_util::TryStreamExt;
 use lapin::{message::Delivery, options::BasicAckOptions, types::FieldTable, Channel, Consumer};
 use tokio::sync::RwLock;
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
     config::{MessageFormat, UserSession},

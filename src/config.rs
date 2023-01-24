@@ -1,7 +1,6 @@
 use std::{ops::Deref, sync::OnceLock};
 
 use ahash::AHashSet;
-use axum::extract::ws::Message;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use essence::{
     calculate_permissions_sorted,
@@ -12,6 +11,7 @@ use essence::{
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::error::{Error, IsNoneExt, Result};
 
@@ -22,25 +22,16 @@ fn get_rand() -> &'static SystemRandom {
     RNG.get_or_init(SystemRandom::new)
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum MessageFormat {
     #[default]
     Json,
     Msgpack,
 }
 
-#[inline]
-const fn default_version() -> u8 {
-    1
-}
-
-#[allow(clippy::unsafe_derive_deserialize)]
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Connection {
-    #[serde(default = "default_version")]
     pub version: u8,
-    #[serde(default)]
     pub format: MessageFormat,
 }
 

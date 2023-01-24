@@ -10,20 +10,17 @@ mod config;
 mod error;
 mod presence;
 mod recv;
+mod socket;
 mod upstream;
 mod websocket;
 
-use std::{env, net::SocketAddr};
-
-use axum::{
-    extract::{ConnectInfo, Query, WebSocketUpgrade},
-    http::HeaderMap,
-    routing::get,
-    Router,
-};
 use deadpool_lapin::Runtime;
 use essence::db::connect;
 use lapin::{options::ExchangeDeclareOptions, types::FieldTable, ExchangeKind};
+use socket::accept;
+use std::{env, sync::Arc};
+use tokio::net::TcpListener;
+use websocket::handle_socket;
 
 #[tokio::main]
 async fn main() {
@@ -39,12 +36,14 @@ async fn main() {
         .await
         .expect("Failed to connect to db");
 
-    let pool = deadpool_lapin::Config {
-        url: Some("amqp://127.0.0.1:5672".to_string()),
-        ..Default::default()
-    }
-    .create_pool(Some(Runtime::Tokio1))
-    .expect("Failed to create pool");
+    let pool = Arc::new(
+        deadpool_lapin::Config {
+            url: Some("amqp://127.0.0.1:5672".to_string()),
+            ..Default::default()
+        }
+        .create_pool(Some(Runtime::Tokio1))
+        .expect("Failed to create pool"),
+    );
 
     pool.get()
         .await
@@ -61,42 +60,35 @@ async fn main() {
         .await
         .expect("Failed to create global event exchange");
 
-    let app = Router::new()
-        .route(
-            "/",
-            get(
-                |ws: WebSocketUpgrade,
-                 params: Query<config::Connection>,
-                 headers: HeaderMap,
-                 ConnectInfo(ip): ConnectInfo<SocketAddr>| async move {
-                    ws.on_failed_upgrade(|e| warn!("Failed to upgrade: {e:?}"))
-                        .on_upgrade(move |socket| async move {
-                            if let Err(e) = websocket::handle_socket(
-                                socket,
-                                params.0,
-                                headers.get("cf-connecting-ip").map_or(ip.ip(), |v| {
-                                    v.to_str()
-                                        .unwrap_or_default()
-                                        .parse()
-                                        .unwrap_or_else(|_| ip.ip())
-                                }),
-                                pool.get().await.expect("Failed to acquire connection"),
-                            )
-                            .await
-                            {
-                                error!("Websocket handle failed: {e}");
-                            }
-                        })
-                },
-            ),
-        )
-        .layer(tower_http::trace::TraceLayer::new_for_http());
-
-    axum::Server::bind(&"0.0.0.0:8076".parse().unwrap())
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.ok();
-        })
+    let listener = TcpListener::bind("0.0.0.0:8076")
         .await
-        .unwrap();
+        .expect("Failed to bind");
+
+    loop {
+        let (stream, addr) = match listener.accept().await {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Error while accepting connection: {e}");
+                continue;
+            }
+        };
+
+        let pool = pool.clone();
+
+        tokio::spawn(async move {
+            match accept(stream).await {
+                Ok((stream, con, ip)) => {
+                    let ip = ip.unwrap_or_else(|| addr.ip());
+                    let db_con = pool.get().await.expect("Failed to acquire db connection.");
+
+                    if let Err(e) = handle_socket(stream, con, ip, db_con).await {
+                        error!("Error while handling socket: {e}");
+                    }
+                }
+                Err(e) => {
+                    error!("Error while accepting stream: {e}");
+                }
+            }
+        });
+    }
 }

@@ -1,6 +1,5 @@
 use std::{net::IpAddr, sync::Arc};
 
-use axum::extract::ws::Message;
 use deadpool_lapin::Object;
 use flume::Sender;
 use futures_util::future::join_all;
@@ -10,6 +9,7 @@ use lapin::{
     Channel, ExchangeKind,
 };
 use tokio::sync::{Notify, RwLock};
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::{config::UserSession, error::Result, recv};
 

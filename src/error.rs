@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Display};
 
-use axum::extract::ws::Message;
 use deadpool_redis::PoolError;
 use essence::db::sqlx;
 use lapin::{acker::Acker, options::BasicNackOptions};
@@ -26,14 +25,6 @@ impl From<rmp_serde::decode::Error> for Error {
     }
 }
 
-impl From<axum::Error> for Error {
-    fn from(_: axum::Error) -> Self {
-        // In the context of WS, there is not really a way to return error to the client if they already disconnected
-        // So we are just going to ignore it.
-        Self::Ignore
-    }
-}
-
 impl From<sqlx::Error> for Error {
     fn from(value: sqlx::Error) -> Self {
         Self::Close(value.to_string())
@@ -46,8 +37,8 @@ impl From<essence::Error> for Error {
     }
 }
 
-impl From<flume::SendError<Message>> for Error {
-    fn from(_: flume::SendError<Message>) -> Self {
+impl From<flume::SendError<tokio_tungstenite::tungstenite::Message>> for Error {
+    fn from(_: flume::SendError<tokio_tungstenite::tungstenite::Message>) -> Self {
         Self::Close("Internal error while message to mpsc".to_string())
     }
 }
@@ -84,6 +75,12 @@ impl From<bincode::error::DecodeError> for Error {
 
 impl From<bincode::error::EncodeError> for Error {
     fn from(value: bincode::error::EncodeError) -> Self {
+        Self::Close(value.to_string())
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(value: tokio_tungstenite::tungstenite::Error) -> Self {
         Self::Close(value.to_string())
     }
 }

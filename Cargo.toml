@@ -8,7 +8,6 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8"
-axum = { version = "0.6", features = ["ws"] }
 futures-util = "0"
 rmp-serde = "1.1"
 serde = { version = "1", features = ["derive"] }
@@ -17,7 +16,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros",
 essence = { git = "https://github.com/AdaptChat/essence", features = ["client", "db", "bincode"] }
 pretty_env_logger = "0.4"
 log = "0.4"
-tower-http = { version = "0.3", default-features = false, features = ["trace"] }
 governor = { version = "0.5", default-features = false, features = ["std", "quanta"] }
 dotenv = "0"
 lapin = "2"
@@ -29,6 +27,8 @@ ring = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
 redis = { version = "0.22", default-features = false, features = ["ahash"] }
 deadpool-redis = "0.11"
+tokio-tungstenite = "0.18"
+qstring = "0.7.2"
 
 [profile.release]
 lto = "fat"
