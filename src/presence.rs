@@ -12,7 +12,7 @@ const CONFIG: Configuration = bincode::config::standard();
 async fn get_con() -> Result<Connection> {
     Ok(POOL
         .get_or_init(|| {
-            Config::from_url("redis:://127.0.0.1")
+            Config::from_url("redis://127.0.0.1")
                 .create_pool(Some(Runtime::Tokio1))
                 .unwrap()
         })
