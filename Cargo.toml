@@ -30,9 +30,6 @@ deadpool-redis = "0.11"
 tokio-tungstenite = "0.18"
 qstring = "0.7.2"
 
-[profile.release]
-lto = "fat"
-
 [profile.ci]
 debug = 2
 inherits = "dev"

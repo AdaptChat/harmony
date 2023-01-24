@@ -68,7 +68,7 @@ async fn main() {
         let (stream, addr) = match listener.accept().await {
             Ok(r) => r,
             Err(e) => {
-                error!("Error while accepting connection: {e}");
+                error!("Error while accepting connection: {e:?}");
                 continue;
             }
         };
@@ -82,11 +82,11 @@ async fn main() {
                     let db_con = pool.get().await.expect("Failed to acquire db connection.");
 
                     if let Err(e) = handle_socket(stream, con, ip, db_con).await {
-                        error!("Error while handling socket: {e}");
+                        error!("Error while handling socket: {e:?}");
                     }
                 }
                 Err(e) => {
-                    error!("Error while accepting stream: {e}");
+                    error!("Error while accepting stream: {e:?}");
                 }
             }
         });
