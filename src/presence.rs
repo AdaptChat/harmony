@@ -33,6 +33,7 @@ async fn get_sessions(con: &mut Connection, key: impl AsRef<str>) -> Result<Vec<
             &sessions,
             CONFIG,
         )?.0)
+    }
     else {
         Ok(Vec::new())
     }
