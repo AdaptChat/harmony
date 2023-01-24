@@ -28,11 +28,14 @@ pub struct PresenceSession {
 }
 
 async fn get_sessions(con: &mut Connection, key: impl AsRef<str>) -> Result<Vec<PresenceSession>> {
-    Ok(bincode::decode_from_slice::<Vec<PresenceSession>, _>(
-        &con.get::<_, Vec<u8>>(key.as_ref()).await?,
-        CONFIG,
-    )?
-    .0)
+    if let Some(sessions) = con.get::<_, Option<Vec<u8>>>(key.as_ref()).await? {
+        Ok(bincode::decode_from_slice::<Vec<PresenceSession>, _>(
+            &sessions,
+            CONFIG,
+        )?.0)
+    else {
+        Ok(Vec::new())
+    }
 }
 
 pub async fn get_last_session(user_id: u64) -> Result<Option<PresenceSession>> {
