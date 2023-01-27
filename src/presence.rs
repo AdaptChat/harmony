@@ -30,13 +30,10 @@ pub struct PresenceSession {
 async fn get_sessions(con: &mut Connection, key: impl AsRef<str>) -> Result<Vec<PresenceSession>> {
     if let Some(sessions) = con.get::<_, Option<Vec<u8>>>(key.as_ref()).await? {
         if !sessions.is_empty() {
-            return Ok(bincode::decode_from_slice::<Vec<PresenceSession>, _>(
-                &sessions,
-                CONFIG,
-            )?.0);
+            return Ok(bincode::decode_from_slice::<Vec<PresenceSession>, _>(&sessions, CONFIG)?.0);
         }
     }
-    
+
     Ok(Vec::new())
 }
 
@@ -80,7 +77,7 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
 
     if !sessions.is_empty() {
         let new_sessions = bincode::encode_to_vec(sessions, CONFIG)?;
-        
+
         con.set::<_, _, ()>(&key, new_sessions).await?;
     } else {
         con.del(key).await?;

@@ -1,9 +1,7 @@
 use std::fmt::{Debug, Display};
 
-use deadpool_redis::PoolError;
 use essence::db::sqlx;
 use lapin::{acker::Acker, options::BasicNackOptions};
-use redis::RedisError;
 
 #[derive(Debug)]
 pub enum Error {
@@ -13,77 +11,32 @@ pub enum Error {
     Ignore,
 }
 
-impl From<simd_json::Error> for Error {
-    fn from(value: simd_json::Error) -> Self {
-        Self::Close(format!("simd_json: {value:?}"))
+macro_rules! impl_errors {
+    ($($err_ty:ty),*) => {
+        $(
+            impl From<$err_ty> for Error {
+                fn from(value: $err_ty) -> Self {
+                    Self::Close(format!("{}: {value:?}", stringify!($err_ty)))
+                }
+            }
+        )*
     }
 }
 
-impl From<rmp_serde::decode::Error> for Error {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::Close(format!("rmp_serde: {value:?}"))
-    }
-}
-
-impl From<sqlx::Error> for Error {
-    fn from(value: sqlx::Error) -> Self {
-        Self::Close(format!("sqlx: {value:?}"))
-    }
-}
-
-impl From<essence::Error> for Error {
-    fn from(value: essence::Error) -> Self {
-        Self::Close(format!("essencce: {value:?}"))
-    }
-}
-
-impl From<flume::SendError<tokio_tungstenite::tungstenite::Message>> for Error {
-    fn from(_: flume::SendError<tokio_tungstenite::tungstenite::Message>) -> Self {
-        Self::Close("Internal error while message to mpsc".to_string())
-    }
-}
-
-impl From<tokio::task::JoinError> for Error {
-    fn from(value: tokio::task::JoinError) -> Self {
-        Self::Close(format!("tokio task: {value:?}"))
-    }
-}
-
-impl From<lapin::Error> for Error {
-    fn from(value: lapin::Error) -> Self {
-        Self::Close(format!("lapin: {value:?}"))
-    }
-}
-
-impl From<PoolError> for Error {
-    fn from(value: PoolError) -> Self {
-        Self::Close(format!("pool: {value:?}"))
-    }
-}
-
-impl From<RedisError> for Error {
-    fn from(value: RedisError) -> Self {
-        Self::Close(format!("redis: {value:?}"))
-    }
-}
-
-impl From<bincode::error::DecodeError> for Error {
-    fn from(value: bincode::error::DecodeError) -> Self {
-        Self::Close(format!("bincode_de: {value:?}"))
-    }
-}
-
-impl From<bincode::error::EncodeError> for Error {
-    fn from(value: bincode::error::EncodeError) -> Self {
-        Self::Close(format!("bincode_en: {value:?}"))
-    }
-}
-
-impl From<tokio_tungstenite::tungstenite::Error> for Error {
-    fn from(value: tokio_tungstenite::tungstenite::Error) -> Self {
-        Self::Close(format!("tokio_tungstenite: {value:?}"))
-    }
-}
+impl_errors!(
+    simd_json::Error,
+    rmp_serde::decode::Error,
+    sqlx::Error,
+    essence::Error,
+    flume::SendError<tokio_tungstenite::tungstenite::Message>,
+    tokio::task::JoinError,
+    lapin::Error,
+    deadpool_redis::PoolError,
+    redis::RedisError,
+    bincode::error::DecodeError,
+    bincode::error::EncodeError,
+    tokio_tungstenite::tungstenite::Error
+);
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
