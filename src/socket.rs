@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use qstring::QString;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    accept_hdr_async, tungstenite::handshake::server::Request, WebSocketStream,
+    accept_hdr_async, tungstenite::handshake::server::{Request, ErrorResponse}, WebSocketStream,
 };
 
 use crate::{
@@ -18,8 +18,14 @@ pub async fn accept(
     let mut ip = None;
 
     let websocket = accept_hdr_async(stream, |req: &Request, resp| {
-        let ip_ = req
-            .headers()
+        let headers = req.headers();
+
+        if !headers.contains_key("Connection") {
+            return Err(ErrorResponse::new(Some("Missing Connection upgrade header".to_string())));
+        }
+        
+
+        let ip_ = headers
             .get("cf-connecting-ip")
             .map(|ip| ip.to_str().map(|ip| ip.parse::<IpAddr>().ok()).ok())
             .flatten()
