@@ -18,7 +18,13 @@ use deadpool_lapin::Runtime;
 use essence::db::connect;
 use lapin::{options::ExchangeDeclareOptions, types::FieldTable, ExchangeKind};
 use socket::accept;
-use std::{env, sync::Arc};
+use std::{
+    env,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use tokio::net::TcpListener;
 use websocket::handle_socket;
 
@@ -64,31 +70,46 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
+    let (tx, mut rx) = tokio::sync::oneshot::channel();
+
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen to ctrl-c");
+
+        tx.send(())
+    });
+
     loop {
-        let (stream, addr) = match listener.accept().await {
-            Ok(r) => r,
-            Err(e) => {
-                error!("Error while accepting connection: {e:?}");
-                continue;
-            }
-        };
-
-        let pool = pool.clone();
-
-        tokio::spawn(async move {
-            match accept(stream).await {
-                Ok((stream, con, ip)) => {
-                    let ip = ip.unwrap_or_else(|| addr.ip());
-                    let db_con = pool.get().await.expect("Failed to acquire db connection.");
-
-                    if let Err(e) = handle_socket(stream, con, ip, db_con).await {
-                        error!("Error while handling socket: {e:?}");
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (stream, addr) = match accepted {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!("Error while accepting connection: {e:?}");
+                        continue;
                     }
-                }
-                Err(e) => {
-                    error!("Error while accepting stream: {e:?}");
-                }
+                };
+
+                let pool = pool.clone();
+
+                tokio::spawn(async move {
+                    match accept(stream).await {
+                        Ok((stream, con, ip)) => {
+                            let ip = ip.unwrap_or_else(|| addr.ip());
+                            let db_con = pool.get().await.expect("Failed to acquire db connection.");
+
+                            if let Err(e) = handle_socket(stream, con, ip, db_con).await {
+                                error!("Error while handling socket: {e:?}");
+                            }
+                        }
+                        Err(e) => {
+                            error!("Error while accepting stream: {e:?}");
+                        }
+                    }
+                });
             }
-        });
+            _ = &mut rx => {}
+        }
     }
 }

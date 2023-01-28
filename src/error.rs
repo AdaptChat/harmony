@@ -65,15 +65,16 @@ pub trait NackExt<T> {
 
 impl<T, E: Debug> NackExt<T> for std::result::Result<T, E> {
     async fn unwrap_or_nack(self, acker: &Acker, message: impl AsRef<str>) -> T {
-        if let Err(e) = self {
-            acker
-                .nack(BasicNackOptions::default())
-                .await
-                .expect("Failed to nack");
+        match self {
+            Ok(r) => r,
+            Err(e) => {
+                acker
+                    .nack(BasicNackOptions::default())
+                    .await
+                    .expect("Failed to nack");
 
-            panic!("{}: {e:?}", message.as_ref())
-        } else {
-            unsafe { self.unwrap_unchecked() }
+                panic!("{}: {e:?}", message.as_ref())
+            }
         }
     }
 }

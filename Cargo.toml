@@ -33,4 +33,3 @@ qstring = "0.7.2"
 [profile.ci]
 debug = 2
 inherits = "dev"
-

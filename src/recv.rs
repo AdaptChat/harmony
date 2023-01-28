@@ -9,9 +9,14 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
     config::{MessageFormat, UserSession},
-    error::{NackExt, Result},
+    error::{Error, NackExt, Result},
     upstream,
 };
+
+enum HandleState {
+    Continue,
+    Break,
+}
 
 async fn handle(
     m: Delivery,
@@ -33,25 +38,24 @@ async fn handle(
 
     debug!("Got event from upstream: {b:?}");
 
-    match &b {
+    let r = match &b {
         OutboundMessage::GuildCreate { guild } => {
             let id = guild.partial.id.to_string();
 
             upstream::subscribe(&channel, id, &session_id, &user_id)
                 .await
-                .unwrap_or_nack(&acker, "Failed to subscribe to guild exchange")
-                .await;
+                .map(|_| HandleState::Continue)
         }
-        OutboundMessage::GuildRemove { guild_id, .. } => {
-            channel
-                .queue_unbind(
-                    &session_id,
-                    &guild_id.to_string(),
-                    &user_id,
-                    FieldTable::default(),
-                )
-                .await?;
-        }
+        OutboundMessage::GuildRemove { guild_id, .. } => channel
+            .queue_unbind(
+                &session_id,
+                &guild_id.to_string(),
+                &user_id,
+                FieldTable::default(),
+            )
+            .await
+            .map(|_| HandleState::Continue)
+            .map_err(|e| e.into()),
         OutboundMessage::MessageCreate { message } => {
             if session
                 .read()
@@ -59,7 +63,9 @@ async fn handle(
                 .hidden_channels
                 .contains(&message.channel_id)
             {
-                return Ok(());
+                Ok(HandleState::Break)
+            } else {
+                Ok(HandleState::Continue)
             }
         }
         // FIXME: MessageDelete
@@ -70,10 +76,19 @@ async fn handle(
                 .hidden_channels
                 .contains(&after.channel_id)
             {
-                return Ok(());
+                Ok(HandleState::Break)
+            } else {
+                Ok(HandleState::Continue)
             }
         }
-        _ => (),
+        _ => Ok::<HandleState, Error>(HandleState::Continue),
+    }
+    .unwrap_or_nack(&acker, "error while processing incoming event")
+    .await;
+
+    match r {
+        HandleState::Break => return Ok(()),
+        HandleState::Continue => (),
     }
 
     tx.send(match message_format {

@@ -29,10 +29,7 @@ pub async fn accept(
             let query = QString::from(query);
 
             let format = if let Some(format) = query.get("format") {
-                match format {
-                    "msgpack" => MessageFormat::Msgpack,
-                    _ => MessageFormat::default(),
-                }
+                format.parse().unwrap_or_default()
             } else {
                 MessageFormat::default()
             };

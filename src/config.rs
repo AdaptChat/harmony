@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::OnceLock};
+use std::{ops::Deref, str::FromStr, sync::OnceLock};
 
 use ahash::AHashSet;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
@@ -29,6 +29,18 @@ pub enum MessageFormat {
     Msgpack,
 }
 
+impl FromStr for MessageFormat {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
+            "json" => Self::Json,
+            "msgpack" => Self::Msgpack,
+            _ => return Err(()),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Connection {
     pub version: u8,
@@ -51,7 +63,7 @@ impl Connection {
 
     /// Decode a message
     ///
-    /// JSON must be sent with text while msgpack must be sent with
+    /// JSON must be sent with text while msgpack must be sent with binary
     #[allow(clippy::unused_self)]
     pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
     where
@@ -118,6 +130,10 @@ impl UserSession {
                         }
 
                         if let Some(channels) = &guild.channels {
+                            if channels.is_empty() {
+                                continue;
+                            }
+
                             let mut roles = guild.roles.clone().unwrap_or_default();
                             roles.sort_by_key(|r| r.position);
 

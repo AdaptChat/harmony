@@ -9,7 +9,10 @@ use governor::{Quota, RateLimiter};
 use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
     tungstenite::{
-        protocol::{frame::coding::CloseCode, CloseFrame},
+        protocol::{
+            frame::coding::CloseCode::{Policy, Unsupported},
+            CloseFrame,
+        },
         Message,
     },
     WebSocketStream,
@@ -21,10 +24,6 @@ use crate::{
     presence::{insert_session, remove_session, PresenceSession},
     upstream::handle_upstream,
 };
-
-const SECS_10: Duration = Duration::from_secs(10);
-const SECS_30: Duration = Duration::from_secs(30);
-const UNSUPPORTED: CloseCode = CloseCode::Unsupported;
 
 fn handle_error(e: Error, tx: &Sender<Message>) -> Result<()> {
     match e {
@@ -68,7 +67,8 @@ pub async fn handle_socket(
     sender.send(con.encode(&OutboundMessage::Hello)).await?;
 
     let (session, guilds) = {
-        if let Ok(Ok(Some(mut message))) = tokio::time::timeout(SECS_10, receiver.try_next()).await
+        if let Ok(Ok(Some(mut message))) =
+            tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
         {
             if let Message::Close(_) = &message {
                 return Ok(());
@@ -83,7 +83,7 @@ pub async fn handle_socket(
                         Err(e) => {
                             return Ok(sender
                                 .send(Message::Close(Some(CloseFrame {
-                                    code: UNSUPPORTED,
+                                    code: Unsupported,
                                     reason: Cow::Owned(e.to_string()),
                                 })))
                                 .await?);
@@ -93,7 +93,7 @@ pub async fn handle_socket(
                 Err(e) => {
                     return Ok(sender
                         .send(Message::Close(Some(CloseFrame {
-                            code: UNSUPPORTED,
+                            code: Unsupported,
                             reason: Cow::Owned(e.to_string()),
                         })))
                         .await?)
@@ -101,7 +101,7 @@ pub async fn handle_socket(
                 _ => {
                     sender
                         .send(Message::Close(Some(CloseFrame {
-                            code: UNSUPPORTED,
+                            code: Unsupported,
                             reason: Cow::Borrowed("Failed to send Identify event"),
                         })))
                         .await?;
@@ -113,7 +113,7 @@ pub async fn handle_socket(
         } else {
             sender
                 .send(Message::Close(Some(CloseFrame {
-                    code: UNSUPPORTED,
+                    code: Unsupported,
                     reason: Cow::Borrowed("Failed to send Identify event"),
                 })))
                 .await?;
@@ -174,7 +174,7 @@ pub async fn handle_socket(
 
         let client_task = async move || -> Result<()> {
             while let Ok(Ok(Some(mut message))) =
-                tokio::time::timeout(SECS_30, receiver.try_next()).await
+                tokio::time::timeout(Duration::from_secs(30), receiver.try_next()).await
             {
                 if let Message::Close(_) = &message {
                     return Ok(());
@@ -187,7 +187,7 @@ pub async fn handle_socket(
                     );
 
                     tx.send(Message::Close(Some(CloseFrame {
-                        code: CloseCode::Policy,
+                        code: Policy,
                         reason: Cow::Borrowed("Rate limit exceeded"),
                     })))?;
 
