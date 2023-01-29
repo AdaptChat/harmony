@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use dashmap::DashSet;
 use essence::ws::OutboundMessage;
 use flume::Sender;
 use futures_util::TryStreamExt;
@@ -8,7 +7,7 @@ use lapin::{message::Delivery, options::BasicAckOptions, types::FieldTable, Chan
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
-    config::{HiddenChannels, MessageFormat, UserSession},
+    config::{HiddenChannels, MessageFormat},
     error::{Error, NackExt, Result},
     upstream,
 };

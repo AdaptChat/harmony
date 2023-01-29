@@ -176,19 +176,6 @@ impl UserSession {
             guilds: guilds,
         })
     }
-
-    pub async fn get_guilds(&self) -> Result<Vec<Guild>> {
-        Ok(get_pool()
-            .fetch_all_guilds_for_user(
-                self.user_id,
-                GetGuildQuery {
-                    channels: true,
-                    members: true,
-                    roles: true,
-                },
-            )
-            .await?)
-    }
 }
 
 impl Deref for UserSession {

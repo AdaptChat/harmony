@@ -1,18 +1,15 @@
-use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{borrow::Cow, net::IpAddr, sync::Arc, time::Duration};
 
 use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::ws::{InboundMessage, OutboundMessage};
-use flume::Sender;
+
 use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
-use governor::{Quota, RateLimiter};
+
 use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
     tungstenite::{
-        protocol::{
-            frame::coding::CloseCode::{Policy, Unsupported},
-            CloseFrame,
-        },
+        protocol::{frame::coding::CloseCode::Unsupported, CloseFrame},
         Message,
     },
     WebSocketStream,

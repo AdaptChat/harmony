@@ -1,6 +1,5 @@
 use std::{net::IpAddr, sync::Arc};
 
-use dashmap::DashSet;
 use deadpool_lapin::Object;
 use essence::models::Guild;
 use flume::Sender;
