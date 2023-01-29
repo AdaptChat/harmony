@@ -29,6 +29,7 @@ redis = { version = "0.22", default-features = false, features = ["ahash"] }
 deadpool-redis = "0.11"
 tokio-tungstenite = "0.18"
 qstring = "0.7.2"
+dashmap = { version = "5.4" }
 
 [profile.ci]
 debug = 2

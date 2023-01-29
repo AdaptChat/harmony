@@ -4,7 +4,7 @@ use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::ws::{InboundMessage, OutboundMessage};
 use flume::Sender;
-use futures_util::{stream::StreamExt, SinkExt, TryStreamExt};
+use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
 use governor::{Quota, RateLimiter};
 use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
@@ -19,34 +19,12 @@ use tokio_tungstenite::{
 };
 
 use crate::{
+    client::client_rx,
     config::{Connection, UserSession},
     error::{Error, Result},
     presence::{insert_session, remove_session, PresenceSession},
     upstream::handle_upstream,
 };
-
-fn handle_error(e: Error, tx: &Sender<Message>) -> Result<()> {
-    match e {
-        Error::Close(e) => {
-            tx.send(Message::Close(Some(CloseFrame {
-                code: 1003.into(),
-                reason: Cow::Owned(e),
-            })))?;
-
-            Err(Error::Ignore)
-        }
-        Error::Ignore => Ok(()),
-    }
-}
-
-macro_rules! close_if_error {
-    ($func:expr, $sender:expr) => {{
-        match $func {
-            Ok(val) => val,
-            Err(e) => return handle_error(e, $sender),
-        }
-    }};
-}
 
 /// Process event for a websocket connection.
 ///
@@ -66,7 +44,7 @@ pub async fn handle_socket(
     let (mut sender, mut receiver) = socket.split();
     sender.send(con.encode(&OutboundMessage::Hello)).await?;
 
-    let (session, guilds) = {
+    let (session, guilds, hidden_channels) = {
         if let Ok(Ok(Some(mut message))) =
             tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
         {
@@ -151,72 +129,55 @@ pub async fn handle_socket(
         let upstream_finished_setup = Arc::new(Notify::new());
 
         let upstream_task = handle_upstream(
-            session.clone(),
+            session.user_id.to_string(),
+            session.id.clone(),
             tx.clone(),
             amqp,
             upstream_finished_setup.clone(),
             ip,
+            hidden_channels,
+            guilds.clone(),
+            session.format,
         );
 
-        const NON_ZERO_1000: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(1000) };
-        let ratelimiter = RateLimiter::direct(Quota::per_minute(NON_ZERO_1000));
-
         let tx_s = tx.clone();
-        let ready_event =
-            session.encode(&close_if_error!(session.get_ready_event(guilds).await, &tx));
+        let r = match session.get_ready_event(guilds).await {
+            Ok(r) => r,
+            Err(e) => {
+                tx.send(Message::Close(Some(CloseFrame {
+                    code: Unsupported,
+                    reason: Cow::Owned(e.to_string()),
+                })))?;
 
-        tokio::spawn(async move || -> Result<()> {
+                return Ok(());
+            }
+        };
+
+        let ready_event = session.encode(&r);
+
+        tokio::spawn(async move {
             upstream_finished_setup.notified().await;
             tx_s.send(ready_event)?;
 
-            Ok(())
-        }());
+            Ok::<(), Error>(())
+        });
 
-        let client_task = async move || -> Result<()> {
-            while let Ok(Ok(Some(mut message))) =
-                tokio::time::timeout(Duration::from_secs(30), receiver.try_next()).await
-            {
-                if let Message::Close(_) = &message {
-                    return Ok(());
-                }
+        let client_task = client_rx(receiver, tx, session.clone(), ip);
 
-                if ratelimiter.check().is_err() {
-                    info!(
-                        "Rate limit exceeded for {ip} - {}, disconnecting",
-                        &session.id
-                    );
-
-                    tx.send(Message::Close(Some(CloseFrame {
-                        code: Policy,
-                        reason: Cow::Borrowed("Rate limit exceeded"),
-                    })))?;
-
-                    return Ok(());
-                }
-
-                let event = session.decode::<InboundMessage>(&mut message);
-
-                match event {
-                    Ok(event) => match event {
-                        InboundMessage::Ping => tx.send(session.encode(&OutboundMessage::Pong))?,
-                        _ => {}
-                    },
-                    Err(e) => {
-                        if handle_error(e, &tx).is_ok() {
-                            continue;
-                        }
-
-                        return Ok(());
-                    }
-                }
+        async fn wrap<T>(f: impl Future<Output = Result<T>>) {
+            if let Err(e) = f.await {
+                error!("{e}");
+                panic!("{e}");
             }
+        }
 
-            Ok(())
-        };
+        tokio::try_join!(
+            tokio::spawn(wrap(rx_task())),
+            tokio::spawn(wrap(upstream_task)),
+            tokio::spawn(wrap(client_task))
+        )?;
 
-        tokio::try_join!(rx_task(), upstream_task, client_task())?;
-
-        Ok(())
+        Ok::<(), Error>(())
     }
     .await;
 

@@ -1,7 +1,8 @@
 use std::{ops::Deref, str::FromStr, sync::OnceLock};
 
-use ahash::AHashSet;
+use ahash::RandomState;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
+use dashmap::DashSet;
 use essence::{
     calculate_permissions_sorted,
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
@@ -14,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::error::{Error, IsNoneExt, Result};
+
+pub type HiddenChannels = DashSet<u64, RandomState>;
 
 static RNG: OnceLock<SystemRandom> = OnceLock::new();
 
@@ -84,14 +87,13 @@ pub struct UserSession {
     pub token: String,
     pub id: String,
     pub user_id: u64,
-    pub hidden_channels: AHashSet<u64>,
 }
 
 impl UserSession {
     pub async fn new_with_token(
         con_config: Connection,
         token: String,
-    ) -> Result<(Self, Vec<Guild>)> {
+    ) -> Result<(Self, Vec<Guild>, HiddenChannels)> {
         let db = get_pool();
 
         let (user_id, _flags) = db
@@ -110,6 +112,39 @@ impl UserSession {
             )
             .await?;
 
+        let hidden_channels = {
+            let hidden = DashSet::default();
+
+            for guild in &guilds {
+                if guild.partial.owner_id == user_id {
+                    continue;
+                }
+
+                if let Some(channels) = &guild.channels {
+                    if channels.is_empty() {
+                        continue;
+                    }
+
+                    let mut roles = guild.roles.clone().unwrap_or_default();
+                    roles.sort_by_key(|r| r.position);
+
+                    for channel in channels {
+                        let perm = calculate_permissions_sorted(
+                            user_id,
+                            &roles,
+                            Some(&channel.overwrites),
+                        );
+
+                        if !perm.contains(Permissions::VIEW_CHANNEL) {
+                            hidden.insert(channel.id);
+                        }
+                    }
+                }
+            }
+
+            hidden
+        };
+
         Ok((
             Self {
                 con_config,
@@ -121,40 +156,9 @@ impl UserSession {
 
                     buf
                 }),
-                hidden_channels: {
-                    let mut hidden = AHashSet::default();
-
-                    for guild in &guilds {
-                        if guild.partial.owner_id == user_id {
-                            continue;
-                        }
-
-                        if let Some(channels) = &guild.channels {
-                            if channels.is_empty() {
-                                continue;
-                            }
-
-                            let mut roles = guild.roles.clone().unwrap_or_default();
-                            roles.sort_by_key(|r| r.position);
-
-                            for channel in channels {
-                                let perm = calculate_permissions_sorted(
-                                    user_id,
-                                    &roles,
-                                    Some(&channel.overwrites),
-                                );
-
-                                if !perm.contains(Permissions::VIEW_CHANNEL) {
-                                    hidden.insert(channel.id);
-                                }
-                            }
-                        }
-                    }
-
-                    hidden
-                },
             },
             guilds,
+            hidden_channels,
         ))
     }
 

@@ -1,6 +1,8 @@
 use std::{net::IpAddr, sync::Arc};
 
+use dashmap::DashSet;
 use deadpool_lapin::Object;
+use essence::models::Guild;
 use flume::Sender;
 use futures_util::future::join_all;
 use lapin::{
@@ -8,10 +10,14 @@ use lapin::{
     types::FieldTable,
     Channel, ExchangeKind,
 };
-use tokio::sync::{Notify, RwLock};
+use tokio::sync::Notify;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::{config::UserSession, error::Result, recv};
+use crate::{
+    config::{HiddenChannels, MessageFormat},
+    error::{Error, Result},
+    recv,
+};
 
 pub async fn subscribe(
     channel: &Channel,
@@ -46,19 +52,23 @@ pub async fn subscribe(
 }
 
 pub async fn handle_upstream(
-    session: UserSession,
+    user_id: impl AsRef<str>,
+    session_id: impl AsRef<str>,
     tx: Sender<Message>,
     amqp: Object,
     finished: Arc<Notify>,
     ip: IpAddr,
+    hidden_channels: HiddenChannels,
+    guilds: Vec<Guild>,
+    message_format: MessageFormat,
 ) -> Result<()> {
     let channel = amqp.create_channel().await?;
-    let user_id = session.user_id.to_string();
-    let session_id = session.id.clone();
+    let session_id = session_id.as_ref();
+    let user_id = user_id.as_ref();
 
     channel
         .queue_declare(
-            &session_id,
+            session_id.as_ref(),
             QueueDeclareOptions {
                 auto_delete: true,
                 ..Default::default()
@@ -67,36 +77,26 @@ pub async fn handle_upstream(
         )
         .await?;
 
-    {
-        let sc = &channel;
-        let ref_user_id = &user_id;
-        let ref_session_id = &session_id;
+    let ref_channel = &channel;
 
-        join_all(
-            session
-                .get_guilds()
-                .await?
-                .into_iter()
-                .map(async move |guild| -> Result<()> {
-                    subscribe(
-                        sc,
-                        guild.partial.id.to_string(),
-                        ref_session_id,
-                        ref_user_id,
-                    )
-                    .await?;
-
-                    Ok(())
-                }),
+    join_all(guilds.into_iter().map(|guild| async move {
+        subscribe(
+            ref_channel,
+            guild.partial.id.to_string(),
+            session_id,
+            user_id,
         )
-        .await;
-    }
+        .await?;
+
+        Ok::<(), Error>(())
+    }))
+    .await;
 
     channel
         .queue_bind(
-            &session_id,
+            session_id.as_ref(),
             "events",
-            &user_id,
+            user_id.as_ref(),
             QueueBindOptions::default(),
             FieldTable::default(),
         )
@@ -104,8 +104,8 @@ pub async fn handle_upstream(
 
     let consumer = channel
         .basic_consume(
-            &session_id,
-            &format!("consumer-{}-{}-{}", &user_id, &session.id, ip),
+            session_id.as_ref(),
+            &format!("consumer-{}-{}-{}", user_id, session_id, ip),
             BasicConsumeOptions::default(),
             FieldTable::default(),
         )
@@ -118,10 +118,10 @@ pub async fn handle_upstream(
         consumer,
         channel,
         tx,
-        session.format,
+        message_format,
         session_id,
         user_id,
-        Arc::new(RwLock::new(session)),
+        Arc::new(hidden_channels),
     )
     .await?;
 

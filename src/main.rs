@@ -6,6 +6,7 @@
 #[macro_use]
 extern crate log;
 
+mod client;
 mod config;
 mod error;
 mod presence;
@@ -18,13 +19,7 @@ use deadpool_lapin::Runtime;
 use essence::db::connect;
 use lapin::{options::ExchangeDeclareOptions, types::FieldTable, ExchangeKind};
 use socket::accept;
-use std::{
-    env,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::{env, sync::Arc};
 use tokio::net::TcpListener;
 use websocket::handle_socket;
 
