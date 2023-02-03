@@ -171,7 +171,7 @@ pub async fn handle_socket(
                     error!("{e}");
                     panic!("{e}");
                 }
-                _ = shutdown.recv() => return
+                _ = shutdown.recv() => panic!()
             }
         }
 
