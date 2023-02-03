@@ -6,7 +6,7 @@ use essence::ws::{InboundMessage, OutboundMessage};
 
 use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
 
-use tokio::{net::TcpStream, sync::{Notify, broadcast::Receiver}};
+use tokio::{net::TcpStream, sync::{Notify, broadcast::Receiver}, task::JoinHandle};
 use tokio_tungstenite::{
     tungstenite::{
         protocol::{frame::coding::CloseCode::Unsupported, CloseFrame},
@@ -165,26 +165,28 @@ pub async fn handle_socket(
         let client_task = client_rx(receiver, tx, session.clone(), ip);
         let (shutdown, is_shutdown) = tokio::sync::broadcast::channel(3);
 
-        async fn wrap<T>(f: impl Future<Output = Result<T>>, mut shutdown: Receiver<()>) {
+        async fn wrap<T>(f: JoinHandle<Result<T>>, mut shutdown: Receiver<()>) -> Result<()> {
             tokio::select! {
                 r = f => {
                     match r {
-                        Ok(_) => panic!(),
-                        Err(e) => {
-                            error!("{e}");
-                            panic!("{e}");
-                        }
+                        Ok(r) => {
+                            match r {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(e)
+                            }
+                        },
+                        Err(e) => Err(e.into())
                     }
                 }
-                _ = shutdown.recv() => panic!()
+                _ = shutdown.recv() => Ok(())
             }
         }
 
-        let r = tokio::try_join!(
-            tokio::spawn(wrap(rx_task(), is_shutdown)),
-            tokio::spawn(wrap(upstream_task, shutdown.subscribe())),
-            tokio::spawn(wrap(client_task, shutdown.subscribe()))
-        );
+        let r = tokio::select! {
+            r = wrap(tokio::spawn(rx_task()), is_shutdown) => r,
+            r = wrap(tokio::spawn(upstream_task), shutdown.subscribe()) => r,
+            r = wrap(tokio::spawn(client_task), shutdown.subscribe()) => r
+        };
 
         if let Err(e) = shutdown.send(()) {
             error!("No active Receiver?: {e:?}");

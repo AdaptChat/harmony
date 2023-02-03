@@ -66,14 +66,16 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
 
     let mut sessions = get_sessions(&mut con, &key).await?;
 
-    let index = sessions.iter().enumerate().fold(0, |acc, (i, v)| {
-        if v.session_id == session_id.as_ref() {
-            i
-        } else {
-            acc
-        }
-    });
-    sessions.remove(index);
+    if !sessions.is_empty() {
+        let index = sessions.iter().enumerate().fold(0, |acc, (i, v)| {
+            if v.session_id == session_id.as_ref() {
+                i
+            } else {
+                acc
+            }
+        });
+        sessions.remove(index);
+    }
 
     if !sessions.is_empty() {
         let new_sessions = bincode::encode_to_vec(sessions, CONFIG)?;
