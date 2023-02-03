@@ -25,13 +25,13 @@ use websocket::handle_socket;
 
 #[tokio::main]
 async fn main() {
+    drop(dotenv::dotenv());
+
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info,sqlx=debug");
     }
 
     pretty_env_logger::init();
-
-    drop(dotenv::dotenv());
 
     connect(&env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"))
         .await
