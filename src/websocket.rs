@@ -165,34 +165,24 @@ pub async fn handle_socket(
         let client_task = client_rx(receiver, tx, session.clone(), ip);
         let (shutdown, is_shutdown) = tokio::sync::broadcast::channel(3);
 
-        async fn wrap<T>(f: JoinHandle<Result<T>>, mut shutdown: Receiver<()>) -> Result<()> {
+        async fn inner_wrap<T>(f: impl Future<Output = Result<T>>, mut shutdown: Receiver<()>) -> Result<T> {
             tokio::select! {
-                r = f => {
-                    match r {
-                        Ok(r) => {
-                            match r {
-                                Ok(_) => Ok(()),
-                                Err(e) => Err(e)
-                            }
-                        },
-                        Err(e) => Err(e.into())
-                    }
-                }
-                _ = shutdown.recv() => Ok(())
+                r = f => r,
+                _ = shutdown.recv() => Err(Error::Ignore)
             }
         }
 
         let r = tokio::select! {
-            r = wrap(tokio::spawn(rx_task()), is_shutdown) => r,
-            r = wrap(tokio::spawn(upstream_task), shutdown.subscribe()) => r,
-            r = wrap(tokio::spawn(client_task), shutdown.subscribe()) => r
+            r = tokio::spawn(inner_wrap(rx_task(), is_shutdown)) => r,
+            r = tokio::spawn(inner_wrap(upstream_task, shutdown.subscribe())) => r,
+            r = tokio::spawn(inner_wrap(client_task, shutdown.subscribe())) => r
         };
 
         if let Err(e) = shutdown.send(()) {
             error!("No active Receiver?: {e:?}");
         }
 
-        r?;
+        r??;
 
         Ok::<(), Error>(())
     }
