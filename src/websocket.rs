@@ -167,9 +167,14 @@ pub async fn handle_socket(
 
         async fn wrap<T>(f: impl Future<Output = Result<T>>, mut shutdown: Receiver<()>) {
             tokio::select! {
-                Err(e) = f => {
-                    error!("{e}");
-                    panic!("{e}");
+                r = f => {
+                    match r {
+                        Ok(_) => panic!(),
+                        Err(e) => {
+                            error!("{e}");
+                            panic!("{e}");
+                        }
+                    }
                 }
                 _ = shutdown.recv() => panic!()
             }
