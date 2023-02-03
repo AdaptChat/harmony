@@ -26,7 +26,7 @@ use websocket::handle_socket;
 #[tokio::main]
 async fn main() {
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
+        std::env::set_var("RUST_LOG", "info,sqlx=debug");
     }
 
     pretty_env_logger::init();
@@ -76,6 +76,8 @@ async fn main() {
     });
 
     loop {
+        debug!("Awaiting connection.");
+
         tokio::select! {
             accepted = listener.accept() => {
                 let (stream, addr) = match accepted {
@@ -85,6 +87,7 @@ async fn main() {
                         continue;
                     }
                 };
+                info!("Stream accepted");
 
                 let pool = pool.clone();
 
@@ -92,9 +95,14 @@ async fn main() {
                     match accept(stream).await {
                         Ok((stream, con, ip)) => {
                             let ip = ip.unwrap_or_else(|| addr.ip());
-                            let db_con = pool.get().await.expect("Failed to acquire db connection.");
+                            debug!("Accepted connection from: {ip}");
 
-                            if let Err(e) = handle_socket(stream, con, ip, db_con).await {
+                            // We don't want to hold onto pool for too long.
+                            let amqp_con = {
+                                pool.get().await.expect("Failed to acquire db connection.")
+                            };
+
+                            if let Err(e) = handle_socket(stream, con, ip, amqp_con).await {
                                 error!("Error while handling socket: {e:?}");
                             }
                         }
@@ -104,7 +112,11 @@ async fn main() {
                     }
                 });
             }
-            _ = &mut rx => {}
+            _ = &mut rx => {
+                info!("Received ctrl-c, exiting.");
+
+                return
+            }
         }
     }
 }

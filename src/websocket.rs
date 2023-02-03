@@ -6,7 +6,7 @@ use essence::ws::{InboundMessage, OutboundMessage};
 
 use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
 
-use tokio::{net::TcpStream, sync::Notify};
+use tokio::{net::TcpStream, sync::{Notify, broadcast::Receiver}};
 use tokio_tungstenite::{
     tungstenite::{
         protocol::{frame::coding::CloseCode::Unsupported, CloseFrame},
@@ -53,6 +53,8 @@ pub async fn handle_socket(
 
             match event {
                 Ok(InboundMessage::Identify { token }) => {
+                    debug!("initial identify: received identify");
+
                     match UserSession::new_with_token(con, token).await {
                         Ok(val) => val,
                         Err(e) => {
@@ -107,6 +109,7 @@ pub async fn handle_socket(
         },
     )
     .await?;
+    info!("Inserted {0} into online sessions, {0} is now online", session.user_id);
 
     let ref_session = &session;
 
@@ -160,25 +163,37 @@ pub async fn handle_socket(
         });
 
         let client_task = client_rx(receiver, tx, session.clone(), ip);
+        let (shutdown, is_shutdown) = tokio::sync::broadcast::channel(3);
 
-        async fn wrap<T>(f: impl Future<Output = Result<T>>) {
-            if let Err(e) = f.await {
-                error!("{e}");
-                panic!("{e}");
+        async fn wrap<T>(f: impl Future<Output = Result<T>>, mut shutdown: Receiver<()>) {
+            tokio::select! {
+                Err(e) = f => {
+                    error!("{e}");
+                    panic!("{e}");
+                }
+                _ = shutdown.recv() => return
             }
         }
 
-        tokio::try_join!(
-            tokio::spawn(wrap(rx_task())),
-            tokio::spawn(wrap(upstream_task)),
-            tokio::spawn(wrap(client_task))
-        )?;
+        let r = tokio::try_join!(
+            tokio::spawn(wrap(rx_task(), is_shutdown)),
+            tokio::spawn(wrap(upstream_task, shutdown.subscribe())),
+            tokio::spawn(wrap(client_task, shutdown.subscribe()))
+        );
+
+        if let Err(e) = shutdown.send(()) {
+            error!("No active Receiver?: {e:?}");
+        }
+
+        r?;
 
         Ok::<(), Error>(())
     }
     .await;
 
     remove_session(session.user_id, session.id).await?;
+    info!("Removed {0} from online sessions, {0} is now offline", session.user_id);
+
     inner?;
 
     Ok(())
