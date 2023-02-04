@@ -75,11 +75,9 @@ async fn main() {
         tx.send(())
     });
 
-    loop {
-        debug!("Awaiting connection.");
-
-        tokio::select! {
-            accepted = listener.accept() => {
+    tokio::select! {
+        _ = async {
+            loop {
                 let (stream, addr) = match accepted {
                     Ok(r) => r,
                     Err(e) => {
@@ -112,11 +110,11 @@ async fn main() {
                     }
                 });
             }
-            _ = &mut rx => {
-                info!("Received ctrl-c, exiting.");
+        } => {}
+        _ = &mut rx => {
+            info!("Received ctrl-c, exiting.");
 
-                return
-            }
+            return
         }
     }
 }

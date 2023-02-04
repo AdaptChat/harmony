@@ -6,7 +6,7 @@ use essence::ws::{InboundMessage, OutboundMessage};
 
 use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
 
-use tokio::{net::TcpStream, sync::{Notify, broadcast::Receiver}, task::JoinHandle};
+use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
     tungstenite::{
         protocol::{frame::coding::CloseCode::Unsupported, CloseFrame},
@@ -109,7 +109,10 @@ pub async fn handle_socket(
         },
     )
     .await?;
-    info!("Inserted {0} into online sessions, {0} is now online", session.user_id);
+    info!(
+        "Inserted {0} into online sessions, {0} is now online",
+        session.user_id
+    );
 
     let ref_session = &session;
 
@@ -163,24 +166,25 @@ pub async fn handle_socket(
         });
 
         let client_task = client_rx(receiver, tx, session.clone(), ip);
-        let (shutdown, is_shutdown) = tokio::sync::broadcast::channel(3);
+        let notified = Arc::new(Notify::new());
 
-        async fn inner_wrap<T>(f: impl Future<Output = Result<T>>, mut shutdown: Receiver<()>) -> Result<T> {
+        async fn inner_wrap<T>(
+            f: impl Future<Output = Result<T>>,
+            shutdown: Arc<Notify>,
+        ) -> Result<T> {
             tokio::select! {
                 r = f => r,
-                _ = shutdown.recv() => Err(Error::Ignore)
+                _ = shutdown.notified() => Err(Error::Ignore)
             }
         }
 
         let r = tokio::select! {
-            r = tokio::spawn(inner_wrap(rx_task(), is_shutdown)) => r,
-            r = tokio::spawn(inner_wrap(upstream_task, shutdown.subscribe())) => r,
-            r = tokio::spawn(inner_wrap(client_task, shutdown.subscribe())) => r
+            r = tokio::spawn(inner_wrap(rx_task(), notified.clone())) => r,
+            r = tokio::spawn(inner_wrap(upstream_task, notified.clone())) => r,
+            r = tokio::spawn(inner_wrap(client_task, notified.clone())) => r
         };
 
-        if let Err(e) = shutdown.send(()) {
-            error!("No active Receiver?: {e:?}");
-        }
+        notified.notify_waiters();
 
         r??;
 
@@ -189,7 +193,10 @@ pub async fn handle_socket(
     .await;
 
     remove_session(session.user_id, session.id).await?;
-    info!("Removed {0} from online sessions, {0} is now offline", session.user_id);
+    info!(
+        "Removed {0} from online sessions, {0} is now offline",
+        session.user_id
+    );
 
     inner?;
 
