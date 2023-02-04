@@ -78,8 +78,7 @@ async fn main() {
     tokio::select! {
         _ = async {
             loop {
-                
-                let (stream, addr) = match listener.accept() {
+                let (stream, addr) = match listener.accept().await {
                     Ok(r) => r,
                     Err(e) => {
                         error!("Error while accepting connection: {e:?}");
