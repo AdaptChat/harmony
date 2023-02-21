@@ -1,10 +1,18 @@
 use std::{borrow::Cow, net::IpAddr, sync::Arc, time::Duration};
 
+use ahash::{HashSet, HashSetExt};
 use chrono::Utc;
 use deadpool_lapin::Object;
-use essence::ws::{InboundMessage, OutboundMessage};
+use essence::{
+    models::Presence,
+    ws::{InboundMessage, OutboundMessage},
+};
 
-use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
+use futures_util::{
+    future::JoinAll,
+    stream::StreamExt,
+    Future, SinkExt, TryStreamExt,
+};
 
 use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
@@ -19,7 +27,11 @@ use crate::{
     client::client_rx,
     config::{Connection, UserSession},
     error::{Error, Result},
-    presence::{insert_session, remove_session, PresenceSession},
+    events::publish_guild_event,
+    presence::{
+        get_devices, get_last_session, get_presence, insert_session, remove_session,
+        update_presence, PresenceEqHashWithUserId, PresenceSession,
+    },
     upstream::handle_upstream,
 };
 
@@ -41,7 +53,7 @@ pub async fn handle_socket(
     let (mut sender, mut receiver) = socket.split();
     sender.send(con.encode(&OutboundMessage::Hello)).await?;
 
-    let (session, guilds, hidden_channels) = {
+    let (session, guilds, hidden_channels, status, device) = {
         if let Ok(Ok(Some(mut message))) =
             tokio::time::timeout(Duration::from_secs(10), receiver.try_next()).await
         {
@@ -52,11 +64,15 @@ pub async fn handle_socket(
             let event = con.decode::<InboundMessage>(&mut message);
 
             match event {
-                Ok(InboundMessage::Identify { token }) => {
+                Ok(InboundMessage::Identify {
+                    token,
+                    status,
+                    device,
+                }) => {
                     debug!("initial identify: received identify");
 
                     match UserSession::new_with_token(con, token).await {
-                        Ok(val) => val,
+                        Ok(val) => (val.0, val.1, val.2, status, device),
                         Err(e) => {
                             return Ok(sender
                                 .send(Message::Close(Some(CloseFrame {
@@ -106,9 +122,63 @@ pub async fn handle_socket(
         PresenceSession {
             session_id: session.id.clone(),
             online_since: Utc::now(),
+            device,
         },
     )
     .await?;
+
+    update_presence(session.user_id, status).await?;
+
+    guilds
+        .iter()
+        .map(|g| async move {
+            publish_guild_event(
+                g.partial.id,
+                OutboundMessage::PresenceUpdate {
+                    presence: Presence {
+                        user_id: session.user_id,
+                        status,
+                        custom_status: None,
+                        devices: get_devices(session.user_id).await?,
+                        online_since: get_last_session(session.user_id)
+                            .await?
+                            .expect("Session not found")
+                            .online_since,
+                    },
+                },
+            )
+            .await?;
+            Ok::<(), Error>(())
+        })
+        .collect::<JoinAll<_>>()
+        .await;
+
+    // Assuming that all the servers only contains 2 members.
+    // Which is usually way less but we don't want to waste excess memory.
+    let presences = {
+        let mut presences = HashSet::with_capacity(guilds.len() * 2);
+
+        for guild in &guilds {
+            if let Some(members) = guild.members.as_ref() {
+                for member in members {
+                    let user_id = member.user_id();
+
+                    presences.replace(PresenceEqHashWithUserId(Presence {
+                        user_id,
+                        status: get_presence(user_id).await?,
+                        custom_status: None,
+                        devices: get_devices(user_id).await?,
+                        online_since: get_last_session(user_id)
+                            .await?
+                            .map_or_else(Utc::now, |s| s.online_since),
+                    }));
+                }
+            }
+        }
+
+        presences.into_iter().map(|x| x.0).collect::<Vec<Presence>>()
+    };
+
     info!(
         "Inserted {0} into online sessions, {0} is now online",
         session.user_id
@@ -144,7 +214,7 @@ pub async fn handle_socket(
         );
 
         let tx_s = tx.clone();
-        let r = match session.get_ready_event(guilds).await {
+        let r = match session.get_ready_event(guilds, presences).await {
             Ok(r) => r,
             Err(e) => {
                 tx.send(Message::Close(Some(CloseFrame {

@@ -7,7 +7,7 @@ use essence::{
     calculate_permissions_sorted,
     db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
-    models::{Guild, Permissions},
+    models::{Guild, Permissions, Presence},
     ws::OutboundMessage,
 };
 use ring::rand::{SecureRandom, SystemRandom};
@@ -68,13 +68,10 @@ impl Connection {
     ///
     /// JSON must be sent with text while msgpack must be sent with binary
     #[allow(clippy::unused_self)]
-    pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T>
-    where
-        Self: 'a,
-    {
+    pub fn decode<'a, T: Deserialize<'a>>(&self, message: &'a mut Message) -> Result<T> {
         Ok(match message {
             // SAFETY: We are not using the string after passing to it, so it doesn't really matter if is valid UTF-8 or not.
-            Message::Text(ref mut t) => unsafe { simd_json::from_str(t)? },
+            Message::Text(t) => unsafe { simd_json::from_str(t)? },
             Message::Binary(b) => rmp_serde::from_slice(b)?,
             _ => return Err(Error::Ignore),
         })
@@ -162,7 +159,11 @@ impl UserSession {
         ))
     }
 
-    pub async fn get_ready_event(&self, guilds: Vec<Guild>) -> Result<OutboundMessage> {
+    pub async fn get_ready_event(
+        &self,
+        guilds: Vec<Guild>,
+        presences: Vec<Presence>,
+    ) -> Result<OutboundMessage> {
         let db = get_pool();
 
         let user = db
@@ -173,7 +174,8 @@ impl UserSession {
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
             user,
-            guilds: guilds,
+            guilds,
+            presences,
         })
     }
 }

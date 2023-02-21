@@ -9,6 +9,7 @@ extern crate log;
 mod client;
 mod config;
 mod error;
+mod events;
 mod presence;
 mod recv;
 mod socket;
@@ -46,10 +47,9 @@ async fn main() {
         .expect("Failed to create pool"),
     );
 
-    pool.get()
-        .await
-        .expect("Failed to acquire connection")
-        .create_channel()
+    let con = pool.get().await.expect("Failed to acquire connection");
+
+    con.create_channel()
         .await
         .expect("Failed to create channel")
         .exchange_declare(
@@ -60,6 +60,8 @@ async fn main() {
         )
         .await
         .expect("Failed to create global event exchange");
+
+    events::setup(con);
 
     let listener = TcpListener::bind("0.0.0.0:8076")
         .await
@@ -78,7 +80,7 @@ async fn main() {
     tokio::select! {
         _ = async {
             loop {
-                let (stream, addr) = match accepted {
+                let (stream, addr) = match listener.accept().await {
                     Ok(r) => r,
                     Err(e) => {
                         error!("Error while accepting connection: {e:?}");
