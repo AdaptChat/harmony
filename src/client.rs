@@ -21,7 +21,7 @@ use crate::{
     config::UserSession,
     error::{Error, Result},
     events::publish_guild_event,
-    presence::{get_devices, get_last_session, update_presence},
+    presence::{get_devices, get_last_session, update_presence, publish_presence_change},
 };
 
 fn handle_error(e: Error, tx: &Sender<Message>) -> Result<()> {
@@ -77,35 +77,20 @@ pub async fn client_rx(
                 InboundMessage::UpdatePresence { status } => {
                     if let Some(status) = status {
                         update_presence(session.user_id, status).await?;
-                        get_pool()
-                            .fetch_all_guild_ids_for_user(session.user_id)
-                            .await?
-                            .into_iter()
-                            .map(|g| async move {
-                                publish_guild_event(
-                                    g,
-                                    OutboundMessage::PresenceUpdate {
-                                        presence: Presence {
-                                            user_id: session.user_id,
-                                            status,
-                                            custom_status: None,
-                                            devices: get_devices(session.user_id).await?,
-                                            online_since: get_last_session(session.user_id)
-                                                .await?
-                                                .ok_or_else(|| {
-                                                    Error::Close(
-                                                        "online_since does not exist".to_string(),
-                                                    )
-                                                })
-                                                .map(|v| v.online_since)?,
-                                        },
-                                    },
-                                ).await?;
-
-                                Ok::<(), Error>(())
-                            })
-                            .collect::<JoinAll<_>>()
-                            .await;
+                        publish_presence_change(session.user_id, Presence {
+                            user_id: session.user_id,
+                            status,
+                            custom_status: None,
+                            devices: get_devices(session.user_id).await?,
+                            online_since: get_last_session(session.user_id)
+                                .await?
+                                .ok_or_else(|| {
+                                    Error::Close(
+                                        "online_since does not exist".to_string(),
+                                    )
+                                })
+                                .map(|v| v.online_since)?,
+                        }).await?;
                     }
                 }
                 _ => {}

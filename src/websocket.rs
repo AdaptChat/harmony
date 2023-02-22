@@ -4,7 +4,7 @@ use ahash::{HashSet, HashSetExt};
 use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::{
-    models::Presence,
+    models::{Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
 
@@ -30,7 +30,7 @@ use crate::{
     events::publish_guild_event,
     presence::{
         get_devices, get_last_session, get_presence, insert_session, remove_session,
-        update_presence, PresenceEqHashWithUserId, PresenceSession,
+        update_presence, PresenceEqHashWithUserId, PresenceSession, publish_presence_change,
     },
     upstream::handle_upstream,
 };
@@ -129,29 +129,16 @@ pub async fn handle_socket(
 
     update_presence(session.user_id, status).await?;
 
-    guilds
-        .iter()
-        .map(|g| async move {
-            publish_guild_event(
-                g.partial.id,
-                OutboundMessage::PresenceUpdate {
-                    presence: Presence {
-                        user_id: session.user_id,
-                        status,
-                        custom_status: None,
-                        devices: get_devices(session.user_id).await?,
-                        online_since: get_last_session(session.user_id)
-                            .await?
-                            .expect("Session not found")
-                            .online_since,
-                    },
-                },
-            )
-            .await?;
-            Ok::<(), Error>(())
-        })
-        .collect::<JoinAll<_>>()
-        .await;
+    publish_presence_change(session.user_id, Presence {
+        user_id: session.user_id,
+        status,
+        custom_status: None,
+        devices: get_devices(session.user_id).await?,
+        online_since: get_last_session(session.user_id)
+            .await?
+            .expect("Session not found")
+            .online_since,
+    }).await?;
 
     // Assuming that all the servers only contains 2 members.
     // Which is usually way less but we don't want to waste excess memory.
@@ -262,7 +249,24 @@ pub async fn handle_socket(
     }
     .await;
 
+    update_presence(session.user_id, PresenceStatus::Offline).await?;
+
+    publish_presence_change(session.user_id, Presence {
+        user_id: session.user_id,
+        status: PresenceStatus::Offline,
+        custom_status: None,
+        devices: get_devices(session.user_id).await?,
+        online_since: get_last_session(session.user_id)
+            .await?
+            .ok_or_else(|| {
+                Error::Close(
+                    "online_since does not exist".to_string(),
+                )
+            })
+            .map(|v| v.online_since)?,
+    }).await?;
     remove_session(session.user_id, session.id).await?;
+
     info!(
         "Removed {0} from online sessions, {0} is now offline",
         session.user_id
