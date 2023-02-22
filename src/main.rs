@@ -34,6 +34,7 @@ async fn main() {
 
     pretty_env_logger::init();
 
+    essence::cache::setup();
     connect(&env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"))
         .await
         .expect("Failed to connect to db");
