@@ -27,7 +27,7 @@ pub async fn subscribe(
     channel
         .exchange_declare(
             guild_id.as_ref(),
-            ExchangeKind::Fanout,
+            ExchangeKind::Topic,
             ExchangeDeclareOptions {
                 auto_delete: true,
                 ..Default::default()
