@@ -18,19 +18,20 @@ fn get_con() -> &'static Object {
 
 async fn publish(
     exchange: impl AsRef<str>,
+    auto_delete: bool,
     routing_key: impl AsRef<str>,
     data: impl Encode,
 ) -> Result<()> {
     let channel = get_con()
         .create_channel()
         .await?;
-
+    
     channel
         .exchange_declare(
             exchange.as_ref(),
             ExchangeKind::Topic,
             ExchangeDeclareOptions {
-                auto_delete: true,
+                auto_delete,
                 ..Default::default()
             },
             FieldTable::default(),
@@ -51,13 +52,13 @@ async fn publish(
 }
 
 pub async fn publish_user_event(user_id: u64, event: impl Encode) -> Result<()> {
-    publish("events", user_id.to_string(), event).await?;
+    publish("events", false, user_id.to_string(), event).await?;
 
     Ok(())
 }
 
 pub async fn publish_guild_event(guild_id: u64, event: impl Encode) -> Result<()> {
-    publish(guild_id.to_string(), "*", event).await?;
+    publish(guild_id.to_string(), true, "*", event).await?;
 
     Ok(())
 }
