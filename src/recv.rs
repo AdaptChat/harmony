@@ -38,7 +38,7 @@ async fn handle(
     debug!("Got event from upstream: {b:?}");
 
     let r = match &b {
-        OutboundMessage::GuildCreate { guild } => {
+        OutboundMessage::GuildCreate { guild, .. } => {
             let id = guild.partial.id.to_string();
 
             upstream::subscribe(&channel, id, &session_id, &user_id)
@@ -55,7 +55,7 @@ async fn handle(
             .await
             .map(|_| HandleState::Continue)
             .map_err(|e| e.into()),
-        OutboundMessage::MessageCreate { message } => {
+        OutboundMessage::MessageCreate { message, .. } => {
             if hidden_channels.contains(&message.channel_id) {
                 Ok(HandleState::Break)
             } else {
