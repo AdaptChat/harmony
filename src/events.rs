@@ -28,7 +28,7 @@ async fn publish(
     channel
         .exchange_declare(
             exchange.as_ref(),
-            ExchangeKind::Fanout,
+            ExchangeKind::Topic,
             ExchangeDeclareOptions {
                 auto_delete: true,
                 ..Default::default()
