@@ -1,9 +1,9 @@
 use std::{borrow::Cow, net::IpAddr, sync::Arc, time::Duration};
 
-use ahash::{HashSet, HashSetExt};
 use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::{
+    db::{get_pool, GuildDbExt},
     models::{Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
@@ -25,7 +25,7 @@ use crate::{
     error::{Error, Result},
     presence::{
         get_devices, get_last_session, get_presence, insert_session, publish_presence_change,
-        remove_session, update_presence, PresenceEqHashWithUserId, PresenceSession,
+        remove_session, update_presence, PresenceSession,
     },
     upstream::handle_upstream,
 };
@@ -131,45 +131,41 @@ pub async fn handle_socket(
             status,
             custom_status: None,
             devices: get_devices(session.user_id).await?,
-            online_since: Some(
-                get_last_session(session.user_id)
-                    .await?
-                    .expect("Session not found")
-                    .online_since,
-            ),
+            online_since: if status == PresenceStatus::Offline {
+                None
+            } else {
+                Some(
+                    get_last_session(session.user_id)
+                        .await?
+                        .expect("Session not found")
+                        .online_since,
+                )
+            },
         },
     )
     .await?;
 
-    // Assuming that all the servers only contains 2 members.
-    // Which is usually way less but we don't want to waste excess memory.
     let presences = {
-        let mut presences = HashSet::with_capacity(guilds.len() * 2);
+        let users = get_pool()
+            .fetch_observable_user_ids_for_user(session.user_id)
+            .await?;
+        let mut presences = Vec::with_capacity(users.len());
 
-        for guild in &guilds {
-            if let Some(members) = guild.members.as_ref() {
-                for member in members {
-                    let user_id = member.user_id();
-
-                    presences.replace(PresenceEqHashWithUserId(Presence {
-                        user_id,
-                        status: get_presence(user_id).await?,
-                        custom_status: None,
-                        devices: get_devices(user_id).await?,
-                        online_since: Some(
-                            get_last_session(user_id)
-                                .await?
-                                .map_or_else(Utc::now, |s| s.online_since),
-                        ),
-                    }));
-                }
-            }
+        for user_id in users {
+            presences.push(Presence {
+                user_id,
+                status: get_presence(user_id).await?,
+                custom_status: None,
+                devices: get_devices(user_id).await?,
+                online_since: Some(
+                    get_last_session(user_id)
+                        .await?
+                        .map_or_else(Utc::now, |s| s.online_since),
+                ),
+            });
         }
 
         presences
-            .into_iter()
-            .map(|x| x.0)
-            .collect::<Vec<Presence>>()
     };
 
     info!(

@@ -657,8 +657,8 @@ dependencies = [
 
 [[package]]
 name = "essence"
-version = "0.3.5"
-source = "git+https://github.com/AdaptChat/essence#5a481fa9df225e4077456da0bfca1618cbd8aac7"
+version = "0.3.6"
+source = "git+https://github.com/AdaptChat/essence#2d8b581d4f1776dba0a2f89a0ff0a279a7992b23"
 dependencies = [
  "async-trait",
  "bincode",

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, time::Duration};
 
 use essence::{
-    models::Presence,
+    models::{Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
 use flume::Sender;
@@ -76,10 +76,12 @@ pub async fn client_rx(
                     if let Some(status) = status {
                         debug!("Changing status to {status:?} for {}", session.user_id);
 
-                        update_presence(session.user_id, status).await.map_err(|e| {
-                            error!("`update_presence` failed: {e:?}"); 
-                            e
-                        })?;
+                        update_presence(session.user_id, status)
+                            .await
+                            .map_err(|e| {
+                                error!("`update_presence` failed: {e:?}");
+                                e
+                            })?;
                         debug!("Presence updated");
 
                         publish_presence_change(
@@ -89,18 +91,22 @@ pub async fn client_rx(
                                 status,
                                 custom_status: None,
                                 devices: get_devices(session.user_id).await?,
-                                online_since: get_last_session(session.user_id)
-                                    .await?
-                                    .ok_or_else(|| {
-                                        error!("Get last session failed.");
-                                        Error::Close("online_since does not exist".to_string())
-                                    })
-                                    .map(|v| Some(v.online_since))?,
+                                online_since: if status == PresenceStatus::Offline {
+                                    None
+                                } else {
+                                    get_last_session(session.user_id)
+                                        .await?
+                                        .ok_or_else(|| {
+                                            error!("Get last session failed.");
+                                            Error::Close("online_since does not exist".to_string())
+                                        })
+                                        .map(|v| Some(v.online_since))?
+                                },
                             },
                         )
                         .await
                         .map_err(|e| {
-                            error!("`publish_presence_change` failed: {e:?}"); 
+                            error!("`publish_presence_change` failed: {e:?}");
                             e
                         })?;
                         debug!("Presence changed")

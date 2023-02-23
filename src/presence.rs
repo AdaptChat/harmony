@@ -1,4 +1,4 @@
-use std::{hash::Hash, sync::OnceLock};
+use std::sync::OnceLock;
 
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
@@ -12,7 +12,7 @@ use futures_util::future::JoinAll;
 
 use crate::{
     error::{Error, Result},
-    events::{publish_guild_event, publish_user_event},
+    events::publish_user_event,
 };
 
 static POOL: OnceLock<Pool> = OnceLock::new();
@@ -27,23 +27,6 @@ async fn get_con() -> Result<Connection> {
         })
         .get()
         .await?)
-}
-
-#[derive(Debug)]
-pub struct PresenceEqHashWithUserId(pub Presence);
-
-impl Eq for PresenceEqHashWithUserId {}
-
-impl PartialEq for PresenceEqHashWithUserId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.user_id == other.0.user_id
-    }
-}
-
-impl Hash for PresenceEqHashWithUserId {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.user_id.hash(state);
-    }
 }
 
 #[derive(Debug, Encode, Decode, Clone)]
