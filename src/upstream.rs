@@ -22,7 +22,6 @@ pub async fn subscribe(
     channel: &Channel,
     guild_id: impl AsRef<str>,
     session_id: impl AsRef<str>,
-    user_id: impl AsRef<str>,
 ) -> Result<()> {
     channel
         .exchange_declare(
@@ -41,7 +40,7 @@ pub async fn subscribe(
         .queue_bind(
             session_id.as_ref(),
             guild_id.as_ref(),
-            user_id.as_ref(),
+            "all",
             QueueBindOptions::default(),
             FieldTable::default(),
         )
@@ -83,7 +82,6 @@ pub async fn handle_upstream(
             ref_channel,
             guild.partial.id.to_string(),
             session_id,
-            user_id,
         )
         .await?;
 
