@@ -41,7 +41,7 @@ async fn handle(
         OutboundMessage::GuildCreate { guild, .. } => {
             let id = guild.partial.id.to_string();
 
-            upstream::subscribe(&channel, id, &session_id, &user_id)
+            upstream::subscribe(&channel, id, &session_id)
                 .await
                 .map(|_| HandleState::Continue)
         }
@@ -49,7 +49,7 @@ async fn handle(
             .queue_unbind(
                 &session_id,
                 &guild_id.to_string(),
-                &user_id,
+                "all",
                 FieldTable::default(),
             )
             .await
