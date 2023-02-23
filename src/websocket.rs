@@ -242,9 +242,18 @@ pub async fn handle_socket(
         }
 
         let r = tokio::select! {
-            r = tokio::spawn(inner_wrap(rx_task(), notified.clone())) => r,
-            r = tokio::spawn(inner_wrap(upstream_task, notified.clone())) => r,
-            r = tokio::spawn(inner_wrap(client_task, notified.clone())) => r
+            r = tokio::spawn(inner_wrap(rx_task(), notified.clone())) => {
+                debug!("Exit from `rx_task`: {r:?}");
+                r
+            },
+            r = tokio::spawn(inner_wrap(upstream_task, notified.clone())) => {
+                debug!("Exit from `upstream_task`: {r:?}");
+                r
+            },
+            r = tokio::spawn(inner_wrap(client_task, notified.clone())) => {
+                debug!("Exit from `client_task`: {r:?}");
+                r
+            }
         };
 
         notified.notify_waiters();
