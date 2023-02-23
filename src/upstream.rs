@@ -78,12 +78,7 @@ pub async fn handle_upstream(
     let ref_channel = &channel;
 
     join_all(guilds.into_iter().map(|guild| async move {
-        subscribe(
-            ref_channel,
-            guild.partial.id.to_string(),
-            session_id,
-        )
-        .await?;
+        subscribe(ref_channel, guild.partial.id.to_string(), session_id).await?;
 
         Ok::<(), Error>(())
     }))
@@ -117,7 +112,6 @@ pub async fn handle_upstream(
         tx,
         message_format,
         session_id,
-        user_id,
         Arc::new(hidden_channels),
     )
     .await?;

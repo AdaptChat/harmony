@@ -3,10 +3,17 @@ use std::{hash::Hash, sync::OnceLock};
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Config, Connection, Pool, Runtime};
-use essence::{models::{Device, Devices, Presence, PresenceStatus}, db::{get_pool, GuildDbExt}, ws::OutboundMessage};
+use essence::{
+    db::{get_pool, GuildDbExt},
+    models::{Device, Devices, Presence, PresenceStatus},
+    ws::OutboundMessage,
+};
 use futures_util::future::JoinAll;
 
-use crate::{error::{Result, Error}, events::publish_guild_event};
+use crate::{
+    error::{Error, Result},
+    events::publish_guild_event,
+};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 const CONFIG: Configuration = bincode::config::standard();
@@ -172,14 +179,15 @@ pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result
         .into_iter()
         .map(|g| {
             let presence = presence.clone();
-            
+
             async move {
                 publish_guild_event(
                     g,
                     OutboundMessage::PresenceUpdate {
-                        presence: presence.clone()
+                        presence: presence.clone(),
                     },
-                ).await?;
+                )
+                .await?;
 
                 Ok::<(), Error>(())
             }

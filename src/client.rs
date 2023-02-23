@@ -1,12 +1,11 @@
 use std::{borrow::Cow, net::IpAddr, num::NonZeroU32, time::Duration};
 
 use essence::{
-    db::{get_pool, GuildDbExt},
     models::Presence,
     ws::{InboundMessage, OutboundMessage},
 };
 use flume::Sender;
-use futures_util::{stream::SplitStream, TryStreamExt, future::JoinAll};
+use futures_util::{stream::SplitStream, TryStreamExt};
 use governor::{Quota, RateLimiter};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
@@ -20,8 +19,7 @@ use tokio_tungstenite::{
 use crate::{
     config::UserSession,
     error::{Error, Result},
-    events::publish_guild_event,
-    presence::{get_devices, get_last_session, update_presence, publish_presence_change},
+    presence::{get_devices, get_last_session, publish_presence_change, update_presence},
 };
 
 fn handle_error(e: Error, tx: &Sender<Message>) -> Result<()> {
@@ -76,21 +74,30 @@ pub async fn client_rx(
                 InboundMessage::Ping => tx.send(session.encode(&OutboundMessage::Pong))?,
                 InboundMessage::UpdatePresence { status } => {
                     if let Some(status) = status {
-                        update_presence(session.user_id, status).await?;
-                        publish_presence_change(session.user_id, Presence {
-                            user_id: session.user_id,
-                            status,
-                            custom_status: None,
-                            devices: get_devices(session.user_id).await?,
-                            online_since: get_last_session(session.user_id)
-                                .await?
-                                .ok_or_else(|| {
-                                    Error::Close(
-                                        "online_since does not exist".to_string(),
-                                    )
-                                })
-                                .map(|v| v.online_since)?,
-                        }).await?;
+                        update_presence(session.user_id, status).await.map_err(|e| {
+                            error!("`update_presence` failed: {e:?}"); 
+                            e
+                        })?;
+                        publish_presence_change(
+                            session.user_id,
+                            Presence {
+                                user_id: session.user_id,
+                                status,
+                                custom_status: None,
+                                devices: get_devices(session.user_id).await?,
+                                online_since: get_last_session(session.user_id)
+                                    .await?
+                                    .ok_or_else(|| {
+                                        Error::Close("online_since does not exist".to_string())
+                                    })
+                                    .map(|v| Some(v.online_since))?,
+                            },
+                        )
+                        .await
+                        .map_err(|e| {
+                            error!("`publish_presence_change` failed: {e:?}"); 
+                            e
+                        })?;
                     }
                 }
                 _ => {}

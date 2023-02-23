@@ -8,11 +8,7 @@ use essence::{
     ws::{InboundMessage, OutboundMessage},
 };
 
-use futures_util::{
-    future::JoinAll,
-    stream::StreamExt,
-    Future, SinkExt, TryStreamExt,
-};
+use futures_util::{stream::StreamExt, Future, SinkExt, TryStreamExt};
 
 use tokio::{net::TcpStream, sync::Notify};
 use tokio_tungstenite::{
@@ -27,10 +23,9 @@ use crate::{
     client::client_rx,
     config::{Connection, UserSession},
     error::{Error, Result},
-    events::publish_guild_event,
     presence::{
-        get_devices, get_last_session, get_presence, insert_session, remove_session,
-        update_presence, PresenceEqHashWithUserId, PresenceSession, publish_presence_change,
+        get_devices, get_last_session, get_presence, insert_session, publish_presence_change,
+        remove_session, update_presence, PresenceEqHashWithUserId, PresenceSession,
     },
     upstream::handle_upstream,
 };
@@ -129,16 +124,22 @@ pub async fn handle_socket(
 
     update_presence(session.user_id, status).await?;
 
-    publish_presence_change(session.user_id, Presence {
-        user_id: session.user_id,
-        status,
-        custom_status: None,
-        devices: get_devices(session.user_id).await?,
-        online_since: get_last_session(session.user_id)
-            .await?
-            .expect("Session not found")
-            .online_since,
-    }).await?;
+    publish_presence_change(
+        session.user_id,
+        Presence {
+            user_id: session.user_id,
+            status,
+            custom_status: None,
+            devices: get_devices(session.user_id).await?,
+            online_since: Some(
+                get_last_session(session.user_id)
+                    .await?
+                    .expect("Session not found")
+                    .online_since,
+            ),
+        },
+    )
+    .await?;
 
     // Assuming that all the servers only contains 2 members.
     // Which is usually way less but we don't want to waste excess memory.
@@ -155,15 +156,20 @@ pub async fn handle_socket(
                         status: get_presence(user_id).await?,
                         custom_status: None,
                         devices: get_devices(user_id).await?,
-                        online_since: get_last_session(user_id)
-                            .await?
-                            .map_or_else(Utc::now, |s| s.online_since),
+                        online_since: Some(
+                            get_last_session(user_id)
+                                .await?
+                                .map_or_else(Utc::now, |s| s.online_since),
+                        ),
                     }));
                 }
             }
         }
 
-        presences.into_iter().map(|x| x.0).collect::<Vec<Presence>>()
+        presences
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<Presence>>()
     };
 
     info!(
@@ -250,22 +256,19 @@ pub async fn handle_socket(
     .await;
 
     update_presence(session.user_id, PresenceStatus::Offline).await?;
-
-    publish_presence_change(session.user_id, Presence {
-        user_id: session.user_id,
-        status: PresenceStatus::Offline,
-        custom_status: None,
-        devices: get_devices(session.user_id).await?,
-        online_since: get_last_session(session.user_id)
-            .await?
-            .ok_or_else(|| {
-                Error::Close(
-                    "online_since does not exist".to_string(),
-                )
-            })
-            .map(|v| v.online_since)?,
-    }).await?;
     remove_session(session.user_id, session.id).await?;
+
+    publish_presence_change(
+        session.user_id,
+        Presence {
+            user_id: session.user_id,
+            status: PresenceStatus::Offline,
+            custom_status: None,
+            devices: get_devices(session.user_id).await?,
+            online_since: None,
+        },
+    )
+    .await?;
 
     info!(
         "Removed {0} from online sessions, {0} is now offline",

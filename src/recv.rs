@@ -23,7 +23,6 @@ async fn handle(
     tx: Sender<Message>,
     message_format: MessageFormat,
     session_id: String,
-    user_id: String,
     hidden_channels: Arc<HiddenChannels>,
 ) -> Result<()> {
     let b_res =
@@ -106,7 +105,6 @@ pub async fn process(
     tx: Sender<Message>,
     message_format: MessageFormat,
     session_id: impl AsRef<str>,
-    user_id: impl AsRef<str>,
     hidden_channels: Arc<HiddenChannels>,
 ) -> Result<()> {
     // Channel uses 8 Arcs internally, so instead of cloning
@@ -120,7 +118,6 @@ pub async fn process(
             tx.clone(),
             message_format,
             session_id.as_ref().to_string(),
-            user_id.as_ref().to_string(),
             hidden_channels.clone(),
         ));
     }

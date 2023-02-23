@@ -2,7 +2,11 @@ use std::sync::OnceLock;
 
 use bincode::Encode;
 use deadpool_lapin::Object;
-use lapin::{options::{BasicPublishOptions, ExchangeDeclareOptions}, BasicProperties, ExchangeKind, types::FieldTable};
+use lapin::{
+    options::{BasicPublishOptions, ExchangeDeclareOptions},
+    types::FieldTable,
+    BasicProperties, ExchangeKind,
+};
 
 use crate::error::Result;
 
@@ -22,10 +26,8 @@ async fn publish(
     routing_key: impl AsRef<str>,
     data: impl Encode,
 ) -> Result<()> {
-    let channel = get_con()
-        .create_channel()
-        .await?;
-    
+    let channel = get_con().create_channel().await?;
+
     channel
         .exchange_declare(
             exchange.as_ref(),
