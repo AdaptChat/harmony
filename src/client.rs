@@ -109,11 +109,12 @@ pub async fn client_rx(
                 _ => {}
             },
             Err(e) => {
-                if handle_error(e, &tx).is_ok() {
+                error!("Client task: {e:?}");
+                if handle_error(e.clone(), &tx).is_ok() {
                     continue;
                 }
 
-                return Ok(());
+                return Err(e);
             }
         }
     }

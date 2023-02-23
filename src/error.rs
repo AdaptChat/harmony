@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display};
 use essence::db::sqlx;
 use lapin::{acker::Acker, options::BasicNackOptions};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     /// Close connection with error message.
     Close(String),
