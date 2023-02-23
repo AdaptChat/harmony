@@ -12,7 +12,7 @@ use futures_util::future::JoinAll;
 
 use crate::{
     error::{Error, Result},
-    events::publish_guild_event,
+    events::{publish_guild_event, publish_user_event},
 };
 
 static POOL: OnceLock<Pool> = OnceLock::new();
@@ -174,15 +174,15 @@ pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
 
 pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result<()> {
     let res = get_pool()
-        .fetch_all_guild_ids_for_user(user_id)
+        .fetch_observable_user_ids_for_user(user_id)
         .await?
         .into_iter()
-        .map(|g| {
+        .map(|user_id| {
             let presence = presence.clone();
 
             async move {
-                publish_guild_event(
-                    g,
+                publish_user_event(
+                    user_id,
                     OutboundMessage::PresenceUpdate {
                         presence: presence.clone(),
                     },
