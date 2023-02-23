@@ -58,7 +58,7 @@ pub async fn publish_user_event(user_id: u64, event: impl Encode) -> Result<()> 
 }
 
 pub async fn publish_guild_event(guild_id: u64, event: impl Encode) -> Result<()> {
-    publish(guild_id.to_string(), true, "*", event).await?;
+    publish(guild_id.to_string(), true, "#", event).await?;
 
     Ok(())
 }
