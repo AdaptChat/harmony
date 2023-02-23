@@ -78,7 +78,7 @@ async fn get_sessions(con: &mut Connection, key: impl AsRef<str>) -> Result<Vec<
 pub async fn get_devices(user_id: u64) -> Result<Devices> {
     let mut devices = Devices::empty();
 
-    for session in get_sessions(&mut get_con().await?, user_id.to_string()).await? {
+    for session in get_sessions(&mut get_con().await?, &format!("session-{user_id}")).await? {
         match session.device {
             Device::Desktop => devices.insert(Devices::DESKTOP),
             Device::Mobile => devices.insert(Devices::MOBILE),
