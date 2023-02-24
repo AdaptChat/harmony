@@ -43,7 +43,7 @@ pub async fn client_rx(
     ip: IpAddr,
 ) -> Result<()> {
     let ratelimiter = RateLimiter::direct(Quota::per_minute(unsafe {
-        NonZeroU32::new_unchecked(1000)
+        NonZeroU32::new_unchecked(100)
     }));
 
     while let Ok(Ok(Some(mut message))) =
