@@ -4,7 +4,7 @@ use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::{
     db::{get_pool, GuildDbExt},
-    models::{Presence, PresenceStatus},
+    models::{Presence, PresenceStatus, Devices},
     ws::{InboundMessage, OutboundMessage},
 };
 
@@ -260,20 +260,23 @@ pub async fn handle_socket(
     }
     .await;
 
-    update_presence(session.user_id, PresenceStatus::Offline).await?;
     remove_session(session.user_id, session.id).await?;
 
-    publish_presence_change(
-        session.user_id,
-        Presence {
-            user_id: session.user_id,
-            status: PresenceStatus::Offline,
-            custom_status: None,
-            devices: get_devices(session.user_id).await?,
-            online_since: None,
-        },
-    )
-    .await?;
+    if get_devices(session.user_id).await?.is_empty() {
+        update_presence(session.user_id, PresenceStatus::Offline).await?;
+
+        publish_presence_change(
+            session.user_id,
+            Presence {
+                user_id: session.user_id,
+                status: PresenceStatus::Offline,
+                custom_status: None,
+                devices: Devices::empty(),
+                online_since: None,
+            },
+        )
+        .await?;
+    }
 
     info!(
         "Removed {0} from online sessions, {0} is now offline",
