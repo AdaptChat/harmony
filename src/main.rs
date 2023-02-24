@@ -29,7 +29,7 @@ async fn main() {
     drop(dotenv::dotenv());
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info, sqlx=warn");
+        std::env::set_var("RUST_LOG", "sqlx::query=warn,rustls=warn,info");
     }
 
     pretty_env_logger::init();
