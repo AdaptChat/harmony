@@ -170,12 +170,17 @@ impl UserSession {
             .fetch_client_user_by_id(self.user_id)
             .await?
             .ok_or_close("User does not exist")?;
+        
+        let relationships = db
+            .fetch_relationships(self.user_id)
+            .await?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
             user,
             guilds,
             presences,
+            relationships,
         })
     }
 }
