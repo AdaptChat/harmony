@@ -91,13 +91,15 @@ impl UserSession {
         con_config: Connection,
         token: String,
     ) -> Result<(Self, Vec<Guild>, HiddenChannels)> {
+        debug!("Creating user session");
         let db = get_pool();
 
         let (user_id, _flags) = db
             .fetch_user_info_by_token(&token)
             .await?
             .ok_or_close("Invalid token")?;
-
+        debug!("Creating session for user {}...", user_id);
+        
         let guilds = db
             .fetch_all_guilds_for_user(
                 user_id,
@@ -108,6 +110,7 @@ impl UserSession {
                 },
             )
             .await?;
+        debug!("Fetched {} guilds for {}", guilds.len(), user_id);
 
         let hidden_channels = {
             let hidden = DashSet::default();
