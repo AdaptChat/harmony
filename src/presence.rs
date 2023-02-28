@@ -4,7 +4,7 @@ use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Config, Connection, Pool, Runtime};
 use essence::{
-    db::{get_pool, GuildDbExt},
+    db::{get_pool, GuildDbExt, UserDbExt},
     models::{Device, Devices, Presence, PresenceStatus},
     ws::OutboundMessage,
 };
