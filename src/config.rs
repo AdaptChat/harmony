@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use dashmap::DashSet;
 use essence::{
     calculate_permissions_sorted,
-    db::{get_pool, AuthDbExt, GuildDbExt, UserDbExt},
+    db::{get_pool, AuthDbExt, ChannelDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
     models::{Guild, Permissions, Presence},
     ws::OutboundMessage,
