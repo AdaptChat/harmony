@@ -177,11 +177,16 @@ impl UserSession {
         let relationships = db
             .fetch_relationships(self.user_id)
             .await?;
+        
+        let dm_channels = db
+            .fetch_all_dm_channels_for_user(self.user_id)
+            .await?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
             user,
             guilds,
+            dm_channels,
             presences,
             relationships,
         })
