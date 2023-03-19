@@ -42,9 +42,8 @@ pub async fn client_rx(
     session: UserSession,
     ip: IpAddr,
 ) -> Result<()> {
-    let ratelimiter = RateLimiter::direct(Quota::per_minute(unsafe {
-        NonZeroU32::new_unchecked(100)
-    }));
+    let ratelimiter =
+        RateLimiter::direct(Quota::per_minute(unsafe { NonZeroU32::new_unchecked(100) }));
 
     while let Ok(Ok(Some(mut message))) =
         tokio::time::timeout(Duration::from_secs(30), receiver.try_next()).await

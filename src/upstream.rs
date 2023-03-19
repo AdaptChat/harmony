@@ -1,9 +1,12 @@
 use std::{net::IpAddr, sync::Arc};
 
 use deadpool_lapin::Object;
-use essence::models::Guild;
+use essence::{
+    db::{get_pool, ChannelDbExt},
+    models::Guild,
+};
 use flume::Sender;
-use futures_util::future::join_all;
+use futures_util::future::{JoinAll};
 use lapin::{
     options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
@@ -14,19 +17,20 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
     config::{HiddenChannels, MessageFormat},
-    error::{Error, Result},
+    error::{Result},
     recv,
 };
 
 pub async fn subscribe(
     channel: &Channel,
-    guild_id: impl AsRef<str>,
+    exchange: impl AsRef<str>,
     session_id: impl AsRef<str>,
+    kind: ExchangeKind,
 ) -> Result<()> {
     channel
         .exchange_declare(
-            guild_id.as_ref(),
-            ExchangeKind::Topic,
+            exchange.as_ref(),
+            kind,
             ExchangeDeclareOptions {
                 auto_delete: true,
                 ..Default::default()
@@ -39,7 +43,7 @@ pub async fn subscribe(
     channel
         .queue_bind(
             session_id.as_ref(),
-            guild_id.as_ref(),
+            exchange.as_ref(),
             "all",
             QueueBindOptions::default(),
             FieldTable::default(),
@@ -77,12 +81,39 @@ pub async fn handle_upstream(
 
     let ref_channel = &channel;
 
-    join_all(guilds.into_iter().map(|guild| async move {
-        subscribe(ref_channel, guild.partial.id.to_string(), session_id).await?;
+    for res in guilds
+        .into_iter()
+        .map(|guild| {
+            subscribe(
+                ref_channel,
+                guild.partial.id.to_string(),
+                session_id,
+                ExchangeKind::Topic,
+            )
+        })
+        .collect::<JoinAll<_>>()
+        .await
+    {
+        res?
+    }
 
-        Ok::<(), Error>(())
-    }))
-    .await;
+    for res in get_pool()
+        .fetch_all_dm_channels_for_user(user_id.parse().expect("Not valid user id"))
+        .await?
+        .into_iter()
+        .map(|g| {
+            subscribe(
+                ref_channel,
+                g.id.to_string(),
+                session_id,
+                ExchangeKind::Fanout,
+            )
+        })
+        .collect::<JoinAll<_>>()
+        .await
+    {
+        res?
+    }
 
     channel
         .queue_bind(

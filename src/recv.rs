@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use essence::ws::OutboundMessage;
+use essence::{ws::OutboundMessage, models::Channel as EssenceChannel};
 use flume::Sender;
 use futures_util::TryStreamExt;
-use lapin::{message::Delivery, options::BasicAckOptions, types::FieldTable, Channel, Consumer};
+use lapin::{
+    message::Delivery, options::BasicAckOptions, types::FieldTable, Channel, Consumer, ExchangeKind,
+};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
@@ -15,6 +17,19 @@ use crate::{
 enum HandleState {
     Continue,
     Break,
+}
+
+async fn unsubscribe(channel: &Channel, session_id: impl AsRef<str>, exchange: impl AsRef<str>) -> Result<HandleState> {
+    channel
+            .queue_unbind(
+                session_id.as_ref(),
+                exchange.as_ref(),
+                "all",
+                FieldTable::default(),
+            )
+            .await
+            .map(|_| HandleState::Continue)
+            .map_err(|e| e.into())
 }
 
 async fn handle(
@@ -40,20 +55,20 @@ async fn handle(
         OutboundMessage::GuildCreate { guild, .. } => {
             let id = guild.partial.id.to_string();
 
-            upstream::subscribe(&channel, id, &session_id)
+            upstream::subscribe(&channel, id, &session_id, ExchangeKind::Topic)
                 .await
                 .map(|_| HandleState::Continue)
         }
-        OutboundMessage::GuildRemove { guild_id, .. } => channel
-            .queue_unbind(
-                &session_id,
-                &guild_id.to_string(),
-                "all",
-                FieldTable::default(),
-            )
-            .await
-            .map(|_| HandleState::Continue)
-            .map_err(|e| e.into()),
+        OutboundMessage::GuildRemove { guild_id, .. } => unsubscribe(&channel, &session_id, guild_id.to_string()).await,
+        OutboundMessage::ChannelCreate { channel: chan } => {
+            if let EssenceChannel::Dm(chan) = chan {
+                upstream::subscribe(&channel, chan.id.to_string(), &session_id, ExchangeKind::Fanout).await
+                    .map(|_| HandleState::Continue)
+            } else {
+                Ok(HandleState::Continue)
+            }
+        }
+        OutboundMessage::ChannelDelete { channel_id } => unsubscribe(&channel, &session_id, channel_id.to_string()).await,
         OutboundMessage::MessageCreate { message, .. } => {
             if hidden_channels.contains(&message.channel_id) {
                 Ok(HandleState::Break)

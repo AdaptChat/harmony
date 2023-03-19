@@ -3,8 +3,8 @@ use std::{borrow::Cow, net::IpAddr, sync::Arc, time::Duration};
 use chrono::Utc;
 use deadpool_lapin::Object;
 use essence::{
-    db::{get_pool, GuildDbExt, UserDbExt},
-    models::{Presence, PresenceStatus, Devices},
+    db::{get_pool, UserDbExt},
+    models::{Devices, Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
 

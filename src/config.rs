@@ -99,7 +99,7 @@ impl UserSession {
             .await?
             .ok_or_close("Invalid token")?;
         debug!("Creating session for user {}...", user_id);
-        
+
         let guilds = db
             .fetch_all_guilds_for_user(
                 user_id,
@@ -173,14 +173,10 @@ impl UserSession {
             .fetch_client_user_by_id(self.user_id)
             .await?
             .ok_or_close("User does not exist")?;
-        
-        let relationships = db
-            .fetch_relationships(self.user_id)
-            .await?;
-        
-        let dm_channels = db
-            .fetch_all_dm_channels_for_user(self.user_id)
-            .await?;
+
+        let relationships = db.fetch_relationships(self.user_id).await?;
+
+        let dm_channels = db.fetch_all_dm_channels_for_user(self.user_id).await?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
