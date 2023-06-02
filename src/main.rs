@@ -17,7 +17,6 @@ mod upstream;
 mod websocket;
 
 use deadpool_lapin::Runtime;
-use essence::db::connect;
 use lapin::{options::ExchangeDeclareOptions, types::FieldTable, ExchangeKind};
 use socket::accept;
 use std::{env, sync::Arc};
@@ -34,10 +33,7 @@ async fn main() {
 
     pretty_env_logger::init();
 
-    essence::cache::setup();
-    connect(&env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"))
-        .await
-        .expect("Failed to connect to db");
+    essence::connect().await.expect("could not connect");
 
     let pool = Arc::new(
         deadpool_lapin::Config {
