@@ -33,7 +33,12 @@ async fn main() {
 
     pretty_env_logger::init();
 
-    essence::connect().await.expect("could not connect");
+    essence::connect(
+        &env::var("DATABASE_URL").expect("Missing DATABASE_URL env var"),
+        &env::var("REDIS_URL").expect("Missing REDIS_URL env var"),
+    )
+    .await
+    .expect("could not connect");
 
     let pool = Arc::new(
         deadpool_lapin::Config {
