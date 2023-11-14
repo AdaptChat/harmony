@@ -1,56 +1,40 @@
 use std::net::IpAddr;
 
+use anyhow::Context;
 use qstring::QString;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    accept_hdr_async, tungstenite::handshake::server::Request, WebSocketStream,
-};
+use tokio_tungstenite::{WebSocketStream as _WebSocketStream, accept_hdr_async, tungstenite::handshake::server::Request};
 
-use crate::{
-    config::{Connection, MessageFormat},
-    error::Result,
-};
+use crate::config::{ConnectionSettings, DEFAULT_VERSION};
 
-pub async fn accept(
-    stream: TcpStream,
-) -> Result<(WebSocketStream<TcpStream>, Connection, Option<IpAddr>)> {
-    let mut con = Connection::default();
+pub type WebSocketStream = _WebSocketStream<TcpStream>;
+
+pub async fn accept(stream: TcpStream) -> anyhow::Result<(WebSocketStream, Option<IpAddr>, ConnectionSettings)> {
     let mut ip = None;
+    let mut settings = ConnectionSettings::default();
 
     let websocket = accept_hdr_async(stream, |req: &Request, resp| {
-        let ip_ = req
+        ip = req
             .headers()
             .get("cf-connecting-ip")
-            .map(|ip| ip.to_str().map(|ip| ip.parse::<IpAddr>().ok()).ok())
-            .flatten()
-            .flatten();
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<IpAddr>().ok());
 
-        let con_ = if let Some(query) = req.uri().query() {
-            let query = QString::from(query);
+        if let Some(query) = req.uri().query() {
+            let queries = QString::from(query);
 
-            let format = if let Some(format) = query.get("format") {
-                format.parse().unwrap_or_default()
-            } else {
-                MessageFormat::default()
-            };
+            let version = queries.get("version")
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(DEFAULT_VERSION);
+            let format = queries.get("format")
+                .and_then(|f| f.parse().ok())
+                .unwrap_or_default();
 
-            let version = query
-                .get("version")
-                .map(|v| v.parse::<u8>().ok())
-                .flatten()
-                .unwrap_or(0);
-
-            Connection { version, format }
-        } else {
-            Connection::default()
-        };
-
-        con = con_;
-        ip = ip_;
+            settings = ConnectionSettings { version, format };
+        }
 
         Ok(resp)
-    })
-    .await?;
+    }).await.context("Failed to accept websocket stream")?;
 
-    Ok((websocket, con, ip))
+    Ok((websocket, ip, settings))
 }
