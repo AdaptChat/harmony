@@ -1,4 +1,6 @@
-use std::{str::FromStr, convert::Infallible};
+use std::{convert::Infallible, str::FromStr};
+
+use uuid::Uuid;
 
 pub const DEFAULT_VERSION: u8 = 0;
 
@@ -6,7 +8,7 @@ pub const DEFAULT_VERSION: u8 = 0;
 pub enum MessageFormat {
     #[default]
     Json,
-    MsgPack
+    MsgPack,
 }
 
 impl FromStr for MessageFormat {
@@ -26,14 +28,40 @@ impl FromStr for MessageFormat {
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectionSettings {
     pub version: u8,
-    pub format: MessageFormat
+    pub format: MessageFormat,
 }
 
 impl Default for ConnectionSettings {
     fn default() -> Self {
         Self {
             version: DEFAULT_VERSION,
-            format: MessageFormat::default()
+            format: MessageFormat::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserSession {
+    pub settings: ConnectionSettings,
+    pub session_id: Uuid,
+    session_id_str: String,
+}
+
+impl UserSession {
+    pub fn new(settings: ConnectionSettings) -> Self {
+        let session_id = Uuid::new_v4();
+
+        Self {
+            settings,
+            session_id,
+            session_id_str: session_id
+                .as_simple()
+                .encode_lower(&mut Uuid::encode_buffer())
+                .to_string(),
+        }
+    }
+
+    pub fn get_session_id_str(&self) -> &str {
+        &self.session_id_str
     }
 }

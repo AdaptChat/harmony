@@ -12,6 +12,10 @@ log = "0.4"
 tokio-tungstenite = "0.20"
 anyhow = "1.0"
 qstring = "0.7"
+amqprs = "1.5"
+uuid = { version = "1.5", features = ["v4", "fast-rng"] }
+ahash = "0.8"
+async-trait = "0.1"
 
 [profile.ci]
 debug = 2
