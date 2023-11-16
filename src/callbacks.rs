@@ -1,7 +1,7 @@
 use amqprs::{callbacks::ChannelCallback, channel::Channel, Cancel, CloseChannel};
 use uuid::Uuid;
 
-use crate::shutdown_notifier::SHUTDOWN_NOTIFIER;
+use crate::task_manager::TASK_MANAGER;
 
 type Result<T> = std::result::Result<T, amqprs::error::Error>;
 pub struct ChannelCallbacks {
@@ -26,7 +26,7 @@ impl ChannelCallback for ChannelCallbacks {
             "Channel {} is closing, shutting down client.",
             self.session_id_str
         );
-        SHUTDOWN_NOTIFIER.shutdown(&self.session_id);
+        TASK_MANAGER.shutdown(&self.session_id);
 
         Ok(())
     }

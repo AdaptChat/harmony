@@ -6,9 +6,10 @@ extern crate log;
 mod callbacks;
 mod client_event;
 mod config;
-mod shutdown_notifier;
+mod task_manager;
 mod socket;
 
+use task_manager::TaskManager;
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -27,6 +28,8 @@ async fn main() {
         let _ = global_shutdown.send(true);
     });
 
+    TaskManager::init_listener(global_shutdown.subscribe());
+
     loop {
         tokio::select! {
             socket = listener.accept() => match socket {
@@ -40,7 +43,11 @@ async fn main() {
                 },
                 Err(err) => error!("Couldn't accept client: {err}")
             },
-            _ = shutting_down.changed() => {}
+            _ = shutting_down.changed() => { 
+                tokio::task::yield_now().await;
+                
+                break;
+            }
         }
     }
 }
