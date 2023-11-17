@@ -6,11 +6,13 @@ extern crate log;
 mod callbacks;
 mod client_event;
 mod config;
+mod socket_accept;
 mod task_manager;
-mod socket;
+mod websocket;
 
-use task_manager::TaskManager;
 use tokio::net::TcpListener;
+
+use crate::task_manager::TASK_MANAGER;
 
 #[tokio::main]
 async fn main() {
@@ -28,13 +30,11 @@ async fn main() {
         let _ = global_shutdown.send(true);
     });
 
-    TaskManager::init_listener(global_shutdown.subscribe());
-
     loop {
         tokio::select! {
             socket = listener.accept() => match socket {
                 Ok((stream, local_ip)) => {
-                    match socket::accept(stream).await {
+                    match socket_accept::accept(stream).await {
                         Ok((websocket, ip, settings)) => {
                             let ip = ip.unwrap_or(local_ip.ip());
                         },
@@ -43,9 +43,10 @@ async fn main() {
                 },
                 Err(err) => error!("Couldn't accept client: {err}")
             },
-            _ = shutting_down.changed() => { 
+            _ = shutting_down.changed() => {
+                TASK_MANAGER.shutdown_all();
                 tokio::task::yield_now().await;
-                
+
                 break;
             }
         }

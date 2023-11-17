@@ -1,5 +1,8 @@
 use std::{convert::Infallible, str::FromStr};
 
+use anyhow::{anyhow, Context};
+use serde::{Deserialize, Serialize};
+use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 pub const DEFAULT_VERSION: u8 = 0;
@@ -63,5 +66,28 @@ impl UserSession {
 
     pub fn get_session_id_str(&self) -> &str {
         &self.session_id_str
+    }
+
+    pub fn decode<'a, T: Deserialize<'a>>(&self, msg: &'a mut Message) -> anyhow::Result<T> {
+        match msg {
+            Message::Binary(b) => {
+                Ok(rmp_serde::from_slice(b).context("rmp-serde failed to decode message")?)
+            }
+            Message::Text(t) => unsafe {
+                Ok(simd_json::from_str(t).context("simd-json failed to decode message")?)
+            },
+            _ => Err(anyhow!("invalid message type while decoding")),
+        }
+    }
+
+    pub fn encode<T: Serialize>(&self, data: &T) -> anyhow::Result<Message> {
+        match self.settings.format {
+            MessageFormat::Json => Ok(Message::Text(
+                simd_json::to_string(data).context("simd-json failed to serialize")?,
+            )),
+            MessageFormat::MsgPack => Ok(Message::Binary(
+                rmp_serde::to_vec_named(data).context("rmp-serde failed to serialize")?,
+            )),
+        }
     }
 }

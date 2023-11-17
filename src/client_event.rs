@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use amqprs::channel::{Channel, QueueDeclareArguments};
 use anyhow::Context;
 
-use crate::{config::UserSession, socket::WebSocketStream};
+use crate::{config::UserSession, socket_accept::WebSocketStream};
 
 pub async fn handle(
     websocket: WebSocketStream,
