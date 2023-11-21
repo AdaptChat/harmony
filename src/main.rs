@@ -6,16 +6,22 @@ extern crate log;
 mod callbacks;
 mod client_event;
 mod config;
+mod error;
+mod presence;
 mod socket_accept;
-mod task_manager;
 mod websocket;
 
 use tokio::net::TcpListener;
 
-use crate::task_manager::TASK_MANAGER;
-
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().expect("failed to load dotenv");
+
+    essence::connect(
+        &std::env::var("DB_URL").expect("missing DB_URL"),
+        &std::env::var("REDIS_URL").expect("missing REDIS_URL"),
+    );
+
     let listener = TcpListener::bind("0.0.0.0:8076")
         .await
         .expect("failed to bind");
@@ -44,7 +50,6 @@ async fn main() {
                 Err(err) => error!("Couldn't accept client: {err}")
             },
             _ = shutting_down.changed() => {
-                TASK_MANAGER.shutdown_all();
                 tokio::task::yield_now().await;
 
                 break;

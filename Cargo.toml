@@ -18,8 +18,13 @@ ahash = "0.8"
 async-trait = "0.1"
 futures-util = "0.3"
 simd-json = "0.13"
+essence = { git = "https://github.com/AdaptChat/essence.git", features = ["db"] }
 rmp-serde = "1.1"
 serde = "1"
+dotenvy = "0.15"
+bincode = { version = "2.0.0-rc.3", features = ["serde"] }
+deadpool-redis = "0.13"
+chrono = "0.4"
 
 [profile.ci]
 debug = 2
