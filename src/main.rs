@@ -4,29 +4,36 @@
 extern crate log;
 
 mod callbacks;
-mod client_event;
 mod config;
 mod error;
+mod events;
 mod presence;
 mod socket_accept;
 mod websocket;
 
-use tokio::net::TcpListener;
+use std::time::Duration;
 
-#[tokio::main]
-async fn main() {
+use amqprs::{
+    callbacks::{DefaultChannelCallback, DefaultConnectionCallback},
+    connection::{Connection, OpenConnectionArguments},
+};
+use tokio::{net::TcpListener, runtime::Runtime};
+
+async fn entry() {
     dotenvy::dotenv().expect("failed to load dotenv");
 
     essence::connect(
         &std::env::var("DB_URL").expect("missing DB_URL"),
         &std::env::var("REDIS_URL").expect("missing REDIS_URL"),
-    );
+    )
+    .await
+    .expect("essence connect failed");
 
     let listener = TcpListener::bind("0.0.0.0:8076")
         .await
         .expect("failed to bind");
 
-    let (global_shutdown, global_rx) = tokio::sync::watch::channel(false);
+    let (global_shutdown, _global_rx) = tokio::sync::watch::channel(false);
     let mut shutting_down = global_shutdown.subscribe();
 
     tokio::spawn(async move {
@@ -36,6 +43,16 @@ async fn main() {
         let _ = global_shutdown.send(true);
     });
 
+    let con = Connection::open(&OpenConnectionArguments::default())
+        .await
+        .expect("failed to open amqp conn");
+    let _ = con.register_callback(DefaultConnectionCallback).await;
+    events::setup(
+        con.open_channel(None)
+            .await
+            .expect("failed to open amqp channel"),
+    );
+
     loop {
         tokio::select! {
             socket = listener.accept() => match socket {
@@ -43,6 +60,14 @@ async fn main() {
                     match socket_accept::accept(stream).await {
                         Ok((websocket, ip, settings)) => {
                             let ip = ip.unwrap_or(local_ip.ip());
+                            let channel = con.open_channel(None).await.expect("failed to open amqp channel.");
+                            let _ = channel.register_callback(DefaultChannelCallback).await;
+
+                            tokio::spawn(async move {
+                                if let Err(e) = websocket::process_events(websocket, channel, ip, settings).await {
+                                    error!("process_events returned with error: {e:?}");
+                                }
+                            });
                         },
                         Err(_) => {}
                     }
@@ -50,10 +75,14 @@ async fn main() {
                 Err(err) => error!("Couldn't accept client: {err}")
             },
             _ = shutting_down.changed() => {
-                tokio::task::yield_now().await;
-
                 break;
             }
         }
     }
+}
+
+fn main() {
+    let rt = Runtime::new().unwrap();
+    rt.block_on(entry());
+    rt.shutdown_timeout(Duration::from_secs(5));
 }

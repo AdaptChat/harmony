@@ -1,7 +1,12 @@
 use std::{convert::Infallible, ops::Deref, str::FromStr};
 
 use anyhow::{anyhow, Context};
-use essence::db::{get_pool, AuthDbExt};
+use essence::{
+    db::{get_pool, AuthDbExt, ChannelDbExt, GuildDbExt, UserDbExt},
+    http::guild::GetGuildQuery,
+    models::Presence,
+    ws::OutboundMessage,
+};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
@@ -48,14 +53,14 @@ impl ConnectionSettings {
         }
     }
 
-    pub fn encode<T: Serialize>(&self, data: &T) -> anyhow::Result<Message> {
+    pub fn encode<T: Serialize>(&self, data: &T) -> Message {
         match self.format {
-            MessageFormat::Json => Ok(Message::Text(
-                simd_json::to_string(data).context("simd-json failed to serialize")?,
-            )),
-            MessageFormat::MsgPack => Ok(Message::Binary(
-                rmp_serde::to_vec_named(data).context("rmp-serde failed to serialize")?,
-            )),
+            MessageFormat::Json => {
+                Message::Text(simd_json::to_string(data).expect("simd-json failed to serialize"))
+            }
+            MessageFormat::MsgPack => Message::Binary(
+                rmp_serde::to_vec_named(data).expect("rmp-serde failed to serialize"),
+            ),
         }
     }
 }
@@ -104,6 +109,35 @@ impl UserSession {
 
     pub fn get_session_id_str(&self) -> &str {
         &self.session_id_str
+    }
+
+    pub async fn get_ready_event(
+        &self,
+        presences: Vec<Presence>,
+    ) -> Result<OutboundMessage, essence::Error> {
+        let db = get_pool();
+
+        let user = db.fetch_client_user_by_id(self.user_id).await?.ok_or(
+            essence::Error::InvalidToken {
+                message:
+                    "user is deleted after connecting to ws and before ready event is generated"
+                        .to_string(),
+            },
+        )?;
+        let relationships = db.fetch_relationships(self.user_id).await?;
+        let guilds = db
+            .fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all())
+            .await?;
+        let dm_channels = db.fetch_all_dm_channels_for_user(self.user_id).await?;
+
+        Ok(OutboundMessage::Ready {
+            session_id: self.session_id_str.to_string(),
+            user,
+            guilds,
+            dm_channels,
+            presences,
+            relationships,
+        })
     }
 }
 

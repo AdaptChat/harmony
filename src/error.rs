@@ -1,3 +1,4 @@
+// TODO: current error system needs to be improved.
 use std::fmt::Display;
 
 use anyhow::Context;
@@ -25,11 +26,12 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ResultExt<T> for std::resu
     ) -> Result<T, anyhow::Error> {
         let r = self.context(context);
         if let Err(ref e) = r {
-            tx.send(Message::Close(Some(CloseFrame {
-                code: CloseCode::Error,
-                reason: format!("{e:?}").into(),
-            })))
-            .await;
+            let _ = tx
+                .send(Message::Close(Some(CloseFrame {
+                    code: CloseCode::Error,
+                    reason: format!("{e:?}").into(),
+                })))
+                .await;
         }
 
         r
