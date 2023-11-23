@@ -37,6 +37,7 @@ async fn publish(
                 .finish(),
         )
         .await?;
+    info!("declared exchange {}", exchange.to_string());
 
     channel
         .basic_publish(
@@ -45,6 +46,7 @@ async fn publish(
             BasicPublishArguments::new(&exchange.to_string(), &routing_key.to_string()),
         )
         .await?;
+    info!("published message to exchange {} for routing key {}", exchange.to_string(), routing_key.to_string());
 
     Ok(())
 }
