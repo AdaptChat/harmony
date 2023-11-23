@@ -153,7 +153,11 @@ pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
         ))
 }
 
-pub async fn publish_presence_change(channel: &Channel, user_id: u64, presence: Presence) -> Result<()> {
+pub async fn publish_presence_change(
+    channel: &Channel,
+    user_id: u64,
+    presence: Presence,
+) -> Result<()> {
     let res = get_pool()
         .fetch_observable_user_ids_for_user(user_id)
         .await?

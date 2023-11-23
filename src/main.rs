@@ -47,7 +47,9 @@ async fn entry() {
     let con = Connection::open(&OpenConnectionArguments::default())
         .await
         .expect("failed to open amqp conn");
-    con.register_callback(DefaultConnectionCallback).await.expect("failed to register callback for connection");
+    con.register_callback(DefaultConnectionCallback)
+        .await
+        .expect("failed to register callback for connection");
     // events::setup({
     //     let chan = con
     //         .open_channel(None)

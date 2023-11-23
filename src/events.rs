@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use crate::error::Result;
 use amqprs::{
     channel::{
-        BasicPublishArguments, Channel, ExchangeDeclareArguments, QueueBindArguments,
+        BasicPublishArguments, Channel, ExchangeDeclareArguments, ExchangeType, QueueBindArguments,
         QueueUnbindArguments,
     },
     BasicProperties,
@@ -31,23 +31,18 @@ async fn publish(
     // let channel = get_channel();
 
     channel
-        .exchange_declare(ExchangeDeclareArguments {
-            exchange: exchange.to_string(),
-            exchange_type: "topic".to_string(),
-            auto_delete,
-            ..Default::default()
-        })
+        .exchange_declare(
+            ExchangeDeclareArguments::of_type(&exchange.to_string(), ExchangeType::Topic)
+                .auto_delete(auto_delete)
+                .finish(),
+        )
         .await?;
 
     channel
         .basic_publish(
             BasicProperties::default(),
             bincode::encode_to_vec(data, CONFIG)?,
-            BasicPublishArguments {
-                exchange: exchange.to_string(),
-                routing_key: routing_key.to_string(),
-                ..Default::default()
-            },
+            BasicPublishArguments::new(&exchange.to_string(), &routing_key.to_string()),
         )
         .await?;
 
@@ -55,12 +50,16 @@ async fn publish(
 }
 
 pub async fn publish_user_event(channel: &Channel, user_id: u64, event: impl Encode) -> Result<()> {
-    publish(channel, "global_events", false, user_id.to_string(), event).await?;
+    publish(channel, "events", false, user_id.to_string(), event).await?;
 
     Ok(())
 }
 
-pub async fn _publish_guild_event(channel: &Channel, guild_id: u64, event: impl Encode) -> Result<()> {
+pub async fn _publish_guild_event(
+    channel: &Channel,
+    guild_id: u64,
+    event: impl Encode,
+) -> Result<()> {
     publish(channel, guild_id.to_string(), true, "all", event).await?; // routing_key all will be replaced with intent.
 
     Ok(())
