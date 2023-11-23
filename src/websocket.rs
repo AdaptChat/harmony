@@ -138,6 +138,15 @@ pub async fn process_events(
                 bail_with_ctx!(e, "insert_session");
             }
 
+            if let Err(e) = amqp
+                .queue_declare(QueueDeclareArguments::transient_autodelete(
+                    session.get_session_id_str(),
+                ))
+                .await
+            {
+                bail_with_ctx!(e, "declare queue: queue_declare");
+            }
+
             if let Err(e) = update_presence(session.user_id, status).await {
                 bail_with_ctx!(e, "update_presence");
             }
@@ -198,14 +207,6 @@ pub async fn process_events(
                 Err(e) => {
                     bail_with_ctx!(e, "generate ready event: session.get_ready_event");
                 }
-            }
-            if let Err(e) = amqp
-                .queue_declare(QueueDeclareArguments::transient_autodelete(
-                    session.get_session_id_str(),
-                ))
-                .await
-            {
-                bail_with_ctx!(e, "declare queue: queue_declare");
             }
 
             match get_pool()

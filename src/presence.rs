@@ -181,10 +181,19 @@ pub async fn publish_presence_change(
     //     .collect::<JoinAll<_>>()
     //     .await;
 
-    let user_ids = get_pool().fetch_observable_user_ids_for_user(user_id).await?;
+    let user_ids = get_pool()
+        .fetch_observable_user_ids_for_user(user_id)
+        .await?;
 
     for user_id in user_ids {
-        events::publish_user_event(channel, user_id, OutboundMessage::PresenceUpdate { presence: presence.clone() }).await?;
+        events::publish_user_event(
+            channel,
+            user_id,
+            OutboundMessage::PresenceUpdate {
+                presence: presence.clone(),
+            },
+        )
+        .await?;
     }
 
     Ok(())

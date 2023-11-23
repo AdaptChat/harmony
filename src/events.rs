@@ -47,7 +47,11 @@ async fn publish(
             BasicPublishArguments::new(&exchange.to_string(), &routing_key.to_string()),
         )
         .await?;
-    info!("published message to exchange {} for routing key {}", exchange.to_string(), routing_key.to_string());
+    info!(
+        "published message to exchange {} for routing key {}",
+        exchange.to_string(),
+        routing_key.to_string()
+    );
 
     Ok(())
 }
