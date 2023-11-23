@@ -47,16 +47,16 @@ async fn entry() {
     let con = Connection::open(&OpenConnectionArguments::default())
         .await
         .expect("failed to open amqp conn");
-    let _ = con.register_callback(DefaultConnectionCallback).await;
-    events::setup({
-        let chan = con
-            .open_channel(None)
-            .await
-            .expect("failed to open amqp channel");
-        let _ = chan.register_callback(DefaultChannelCallback).await;
+    con.register_callback(DefaultConnectionCallback).await.expect("failed to register callback for connection");
+    // events::setup({
+    //     let chan = con
+    //         .open_channel(None)
+    //         .await
+    //         .expect("failed to open amqp channel");
+    //     let _ = chan.register_callback(DefaultChannelCallback).await;
 
-        chan
-    });
+    //     chan
+    // });
 
     loop {
         tokio::select! {
@@ -66,7 +66,7 @@ async fn entry() {
                         Ok((websocket, ip, settings)) => {
                             let ip = ip.unwrap_or(local_ip.ip());
                             let channel = con.open_channel(None).await.expect("failed to open amqp channel.");
-                            let _ = channel.register_callback(DefaultChannelCallback).await;
+                            channel.register_callback(DefaultChannelCallback).await.expect("failed to register callback for channel");
 
                             tokio::spawn(async move {
                                 if let Err(e) = websocket::process_events(websocket, channel, ip, settings).await {

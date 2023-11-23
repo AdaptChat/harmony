@@ -140,6 +140,7 @@ pub async fn process_events(
             }
 
             if let Err(e) = publish_presence_change(
+                &amqp,
                 session.user_id,
                 Presence {
                     user_id: session.user_id,
@@ -352,6 +353,7 @@ pub async fn process_events(
                                         .await;
                                     break;
                                 }
+                                // TODO: publish presence change
                             }
                             _ => {}
                         }

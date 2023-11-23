@@ -10,24 +10,25 @@ use amqprs::{
 };
 use bincode::{config::Configuration, Encode};
 
-static CHANNEL: OnceLock<Channel> = OnceLock::new();
+// static CHANNEL: OnceLock<Channel> = OnceLock::new();
 pub const CONFIG: Configuration = bincode::config::standard();
 
-pub fn setup(channel: Channel) {
-    let _ = CHANNEL.set(channel);
-}
+// pub fn setup(channel: Channel) {
+//     let _ = CHANNEL.set(channel);
+// }
 
-fn get_channel() -> &'static Channel {
-    CHANNEL.get().expect("channel not set")
-}
+// fn get_channel() -> &'static Channel {
+//     CHANNEL.get().expect("channel not set")
+// }
 
 async fn publish(
+    channel: &Channel,
     exchange: impl ToString,
     auto_delete: bool,
     routing_key: impl ToString,
     data: impl Encode,
 ) -> Result<()> {
-    let channel = get_channel();
+    // let channel = get_channel();
 
     channel
         .exchange_declare(ExchangeDeclareArguments {
@@ -53,14 +54,14 @@ async fn publish(
     Ok(())
 }
 
-pub async fn publish_user_event(user_id: u64, event: impl Encode) -> Result<()> {
-    publish("global_events", false, user_id.to_string(), event).await?;
+pub async fn publish_user_event(channel: &Channel, user_id: u64, event: impl Encode) -> Result<()> {
+    publish(channel, "global_events", false, user_id.to_string(), event).await?;
 
     Ok(())
 }
 
-pub async fn _publish_guild_event(guild_id: u64, event: impl Encode) -> Result<()> {
-    publish(guild_id.to_string(), true, "all", event).await?; // routing_key all will be replaced with intent.
+pub async fn _publish_guild_event(channel: &Channel, guild_id: u64, event: impl Encode) -> Result<()> {
+    publish(channel, guild_id.to_string(), true, "all", event).await?; // routing_key all will be replaced with intent.
 
     Ok(())
 }

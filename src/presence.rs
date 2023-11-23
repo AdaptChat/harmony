@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+use amqprs::channel::Channel;
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Config, Connection, Pool, Runtime};
@@ -152,7 +153,7 @@ pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
         ))
 }
 
-pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result<()> {
+pub async fn publish_presence_change(channel: &Channel, user_id: u64, presence: Presence) -> Result<()> {
     let res = get_pool()
         .fetch_observable_user_ids_for_user(user_id)
         .await?
@@ -162,6 +163,7 @@ pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result
 
             async move {
                 events::publish_user_event(
+                    channel,
                     user_id,
                     OutboundMessage::PresenceUpdate {
                         presence: presence.clone(),
