@@ -30,7 +30,6 @@ async fn publish(
 ) -> Result<()> {
     // let channel = get_channel();
 
-    info!("declaring");
     channel
         .exchange_declare(
             ExchangeDeclareArguments::of_type(&exchange.to_string(), ExchangeType::Topic)
@@ -38,7 +37,7 @@ async fn publish(
                 .finish(),
         )
         .await?;
-    info!("declared exchange {}", exchange.to_string());
+    debug!("declared exchange {}", exchange.to_string());
 
     channel
         .basic_publish(
@@ -47,7 +46,7 @@ async fn publish(
             BasicPublishArguments::new(&exchange.to_string(), &routing_key.to_string()),
         )
         .await?;
-    info!(
+    debug!(
         "published message to exchange {} for routing key {}",
         exchange.to_string(),
         routing_key.to_string()
