@@ -20,9 +20,8 @@ use amqprs::{
 use tokio::{net::TcpListener, runtime::Runtime};
 
 async fn entry() {
-    env_logger::init();
-
     dotenvy::dotenv().expect("failed to load dotenv");
+    env_logger::init();
     essence::connect(
         &std::env::var("DB_URL").expect("missing DB_URL"),
         &std::env::var("REDIS_URL").expect("missing REDIS_URL"),

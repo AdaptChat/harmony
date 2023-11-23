@@ -30,6 +30,7 @@ async fn publish(
 ) -> Result<()> {
     // let channel = get_channel();
 
+    info!("declaring");
     channel
         .exchange_declare(
             ExchangeDeclareArguments::of_type(&exchange.to_string(), ExchangeType::Topic)

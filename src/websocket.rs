@@ -142,6 +142,7 @@ pub async fn process_events(
                 bail_with_ctx!(e, "update_presence");
             }
 
+            info!("publishing presence change");
             if let Err(e) = publish_presence_change(
                 &amqp,
                 session.user_id,

@@ -158,31 +158,33 @@ pub async fn publish_presence_change(
     user_id: u64,
     presence: Presence,
 ) -> Result<()> {
-    let res = get_pool()
-        .fetch_observable_user_ids_for_user(user_id)
-        .await?
-        .into_iter()
-        .map(|user_id| {
-            let presence = presence.clone();
+    // let res = get_pool()
+    //     .fetch_observable_user_ids_for_user(user_id)
+    //     .await?
+    //     .into_iter()
+    //     .map(|user_id| {
+    //         let presence = presence.clone();
 
-            async move {
-                events::publish_user_event(
-                    channel,
-                    user_id,
-                    OutboundMessage::PresenceUpdate {
-                        presence: presence.clone(),
-                    },
-                )
-                .await?;
+    //         async move {
+    //             events::publish_user_event(
+    //                 channel,
+    //                 user_id,
+    //                 OutboundMessage::PresenceUpdate {
+    //                     presence: presence.clone(),
+    //                 },
+    //             )
+    //             .await?;
 
-                Result::Ok(())
-            }
-        })
-        .collect::<JoinAll<_>>()
-        .await;
+    //             Result::Ok(())
+    //         }
+    //     })
+    //     .collect::<JoinAll<_>>()
+    //     .await;
 
-    for r in res {
-        r?
+    let user_ids = get_pool().fetch_observable_user_ids_for_user(user_id).await?;
+
+    for user_id in user_ids {
+        events::publish_user_event(channel, user_id, OutboundMessage::PresenceUpdate { presence: presence.clone() }).await?;
     }
 
     Ok(())
