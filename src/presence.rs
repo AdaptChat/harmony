@@ -1,6 +1,5 @@
 use std::sync::OnceLock;
 
-use anyhow::{anyhow, Result};
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
 use deadpool_redis::{redis::AsyncCommands, Config, Connection, Pool, Runtime};
@@ -11,7 +10,7 @@ use essence::{
 };
 use futures_util::future::JoinAll;
 
-use crate::events;
+use crate::{error::Result, events};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 const CONFIG: Configuration = bincode::config::standard();
@@ -156,8 +155,7 @@ pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
 pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result<()> {
     let res = get_pool()
         .fetch_observable_user_ids_for_user(user_id)
-        .await
-        .map_err(|e| anyhow!(format!("{e:?}")))?
+        .await?
         .into_iter()
         .map(|user_id| {
             let presence = presence.clone();
@@ -171,7 +169,7 @@ pub async fn publish_presence_change(user_id: u64, presence: Presence) -> Result
                 )
                 .await?;
 
-                anyhow::Ok::<()>(())
+                Result::Ok(())
             }
         })
         .collect::<JoinAll<_>>()

@@ -47,11 +47,15 @@ async fn entry() {
         .await
         .expect("failed to open amqp conn");
     let _ = con.register_callback(DefaultConnectionCallback).await;
-    events::setup(
-        con.open_channel(None)
+    events::setup({
+        let chan = con
+            .open_channel(None)
             .await
-            .expect("failed to open amqp channel"),
-    );
+            .expect("failed to open amqp channel");
+        let _ = chan.register_callback(DefaultChannelCallback).await;
+
+        chan
+    });
 
     loop {
         tokio::select! {
@@ -69,7 +73,9 @@ async fn entry() {
                                 }
                             });
                         },
-                        Err(_) => {}
+                        Err(e) => {
+                            error!("failed to accept ws stream: {e}");
+                        }
                     }
                 },
                 Err(err) => error!("Couldn't accept client: {err}")

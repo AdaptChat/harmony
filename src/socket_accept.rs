@@ -1,6 +1,5 @@
 use std::net::IpAddr;
 
-use anyhow::Context;
 use qstring::QString;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
@@ -13,7 +12,10 @@ pub type WebSocketStream = _WebSocketStream<TcpStream>;
 
 pub async fn accept(
     stream: TcpStream,
-) -> anyhow::Result<(WebSocketStream, Option<IpAddr>, ConnectionSettings)> {
+) -> Result<
+    (WebSocketStream, Option<IpAddr>, ConnectionSettings),
+    tokio_tungstenite::tungstenite::Error,
+> {
     let mut ip = None;
     let mut settings = ConnectionSettings::default();
 
@@ -41,8 +43,7 @@ pub async fn accept(
 
         Ok(resp)
     })
-    .await
-    .context("Failed to accept websocket stream")?;
+    .await?;
 
     Ok((websocket, ip, settings))
 }

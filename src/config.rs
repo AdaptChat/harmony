@@ -1,6 +1,5 @@
 use std::{convert::Infallible, ops::Deref, str::FromStr};
 
-use anyhow::{anyhow, Context};
 use essence::{
     db::{get_pool, AuthDbExt, ChannelDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
@@ -10,6 +9,8 @@ use essence::{
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
+
+use crate::error::Result;
 
 pub const DEFAULT_VERSION: u8 = 0;
 
@@ -25,7 +26,7 @@ impl FromStr for MessageFormat {
 
     /// This method is intentionally infallible
     /// It will return default value when it can't parse.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if s.eq_ignore_ascii_case("msgpack") {
             Ok(Self::MsgPack)
         } else {
@@ -41,15 +42,11 @@ pub struct ConnectionSettings {
 }
 
 impl ConnectionSettings {
-    pub fn decode<'a, T: Deserialize<'a>>(&self, msg: &'a mut Message) -> anyhow::Result<T> {
+    pub fn decode<'a, T: Deserialize<'a>>(&self, msg: &'a mut Message) -> Result<T> {
         match msg {
-            Message::Binary(b) => {
-                Ok(rmp_serde::from_slice(b).context("rmp-serde failed to decode message")?)
-            }
-            Message::Text(t) => unsafe {
-                Ok(simd_json::from_str(t).context("simd-json failed to decode message")?)
-            },
-            _ => Err(anyhow!("invalid message type while decoding")),
+            Message::Binary(b) => Ok(rmp_serde::from_slice(b)?),
+            Message::Text(t) => unsafe { Ok(simd_json::from_str(t)?) },
+            _ => Err("invalid message type while decoding".into()),
         }
     }
 
@@ -84,10 +81,7 @@ pub struct UserSession {
 }
 
 impl UserSession {
-    pub async fn new(
-        settings: ConnectionSettings,
-        token: String,
-    ) -> Result<Option<Self>, essence::Error> {
+    pub async fn new(settings: ConnectionSettings, token: String) -> Result<Option<Self>> {
         let session_id = Uuid::new_v4();
         let info = get_pool().fetch_user_info_by_token(token.clone()).await?;
 
@@ -103,7 +97,7 @@ impl UserSession {
                 user_id,
             }))
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 
@@ -111,19 +105,13 @@ impl UserSession {
         &self.session_id_str
     }
 
-    pub async fn get_ready_event(
-        &self,
-        presences: Vec<Presence>,
-    ) -> Result<OutboundMessage, essence::Error> {
+    pub async fn get_ready_event(&self, presences: Vec<Presence>) -> Result<OutboundMessage> {
         let db = get_pool();
 
-        let user = db.fetch_client_user_by_id(self.user_id).await?.ok_or(
-            essence::Error::InvalidToken {
-                message:
-                    "user is deleted after connecting to ws and before ready event is generated"
-                        .to_string(),
-            },
-        )?;
+        let user = db
+            .fetch_client_user_by_id(self.user_id)
+            .await?
+            .ok_or("user is deleted after connecting to ws and before ready event is generated")?;
         let relationships = db.fetch_relationships(self.user_id).await?;
         let guilds = db
             .fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all())
