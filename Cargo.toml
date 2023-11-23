@@ -24,6 +24,7 @@ dotenvy = "0.15"
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
 deadpool-redis = "0.13"
 chrono = "0.4"
+env_logger = "0.10"
 
 [profile.ci]
 debug = 2

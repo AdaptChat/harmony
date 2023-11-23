@@ -37,6 +37,13 @@ pub async fn process_events(
     let (tx, mut rx) = websocket.split();
     let tx = Mutex::new(tx);
 
+    if let Err(e) = tx.lock().await.send(
+        settings.encode(&OutboundMessage::Hello)
+    ).await {
+        // can't send anything to client, which also applies to close message
+        bail_with_ctx!(e, "failed to send hello event: tx.send");
+    }
+
     let hello_event = {
         if let Ok(Ok(Some(mut hello))) =
             tokio::time::timeout(Duration::from_secs(5), rx.try_next()).await
