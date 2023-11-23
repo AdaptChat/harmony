@@ -138,15 +138,6 @@ pub async fn process_events(
                 bail_with_ctx!(e, "insert_session");
             }
 
-            if let Err(e) = amqp
-                .queue_declare(QueueDeclareArguments::transient_autodelete(
-                    session.get_session_id_str(),
-                ))
-                .await
-            {
-                bail_with_ctx!(e, "declare queue: queue_declare");
-            }
-
             if let Err(e) = update_presence(session.user_id, status).await {
                 bail_with_ctx!(e, "update_presence");
             }
@@ -209,13 +200,24 @@ pub async fn process_events(
                 }
             }
 
+            if let Err(e) = amqp
+                .queue_declare(QueueDeclareArguments::transient_autodelete(
+                    session.get_session_id_str(),
+                ))
+                .await
+            {
+                bail_with_ctx!(e, "declare queue: queue_declare");
+            }
+
             match get_pool()
                 .fetch_all_guild_ids_for_user(session.user_id)
                 .await
             {
                 Ok(guilds) => {
                     for guild in guilds {
-                        if let Err(e) = subscribe(&amqp, guild, session.session_id, "topic").await {
+                        if let Err(e) =
+                            subscribe(&amqp, guild, session.get_session_id_str(), "topic").await
+                        {
                             bail_with_ctx!(e, "subscribe to guilds: subscribe");
                         }
                     }
@@ -232,7 +234,8 @@ pub async fn process_events(
                 Ok(dm_channels) => {
                     for channel in dm_channels {
                         if let Err(e) =
-                            subscribe(&amqp, channel.id, session.session_id, "topic").await
+                            subscribe(&amqp, channel.id, session.get_session_id_str(), "topic")
+                                .await
                         {
                             bail_with_ctx!(e, "subscribe to dm channels: subscribe");
                         }
@@ -259,7 +262,12 @@ pub async fn process_events(
                 .basic_consume_rx(
                     BasicConsumeArguments::new(
                         session.get_session_id_str(),
-                        &format!("consumer-{}-{}-{}", session.user_id, session.session_id, ip),
+                        &format!(
+                            "consumer-{}-{}-{}",
+                            session.user_id,
+                            session.get_session_id_str(),
+                            ip
+                        ),
                     )
                     .finish(),
                 )
@@ -286,7 +294,8 @@ pub async fn process_events(
                                 channel: EssenceChannel::Dm(chan),
                             } => {
                                 if let Err(e) =
-                                    subscribe(&amqp, chan.id, session.session_id, "topic").await
+                                    subscribe(&amqp, chan.id, session.get_session_id_str(), "topic")
+                                        .await
                                 {
                                     error!("failed to subscribe to amqp exchange: {e:?}");
                                     break;
@@ -294,16 +303,21 @@ pub async fn process_events(
                             }
                             OutboundMessage::ChannelDelete { channel_id } => {
                                 if let Err(e) =
-                                    unsubscribe(&amqp, channel_id, session.session_id).await
+                                    unsubscribe(&amqp, channel_id, session.get_session_id_str())
+                                        .await
                                 {
                                     error!("failed to unsubscribe to amqp exchange: {e:?}");
                                     break;
                                 }
                             }
                             OutboundMessage::GuildCreate { guild, .. } => {
-                                if let Err(e) =
-                                    subscribe(&amqp, guild.partial.id, session.session_id, "topic")
-                                        .await
+                                if let Err(e) = subscribe(
+                                    &amqp,
+                                    guild.partial.id,
+                                    session.get_session_id_str(),
+                                    "topic",
+                                )
+                                .await
                                 {
                                     error!("failed to subscribe to amqp exchange: {e:?}");
                                     break;
@@ -311,7 +325,7 @@ pub async fn process_events(
                             }
                             OutboundMessage::GuildRemove { guild_id, .. } => {
                                 if let Err(e) =
-                                    unsubscribe(&amqp, guild_id, session.session_id).await
+                                    unsubscribe(&amqp, guild_id, session.get_session_id_str()).await
                                 {
                                     error!("failed to unsubscribe to amqp exchange: {e:?}");
                                     break;
