@@ -25,7 +25,7 @@ use crate::{
     error::Result,
     events::{subscribe, unsubscribe, CONFIG},
     presence::{
-        get_devices, get_last_session, get_presence, insert_session, publish_presence_change,
+        get_devices, get_first_session, get_presence, insert_session, publish_presence_change,
         remove_session, update_presence, PresenceSession,
     },
     socket_accept::WebSocketStream,
@@ -155,7 +155,7 @@ pub async fn process_events(
                     custom_status: None,
                     devices: get_devices(session.user_id).await?, // TODO: Err
                     online_since: Some(
-                        get_last_session(session.user_id)
+                        get_first_session(session.user_id)
                             .await?
                             .map_or_else(|| online_since, |s| s.online_since),
                     ),
@@ -183,7 +183,7 @@ pub async fn process_events(
                         status: get_presence(user_id).await?,
                         custom_status: None,
                         devices: get_devices(user_id).await?,
-                        online_since: get_last_session(user_id)
+                        online_since: get_first_session(user_id)
                             .await?
                             .map_or_else(|| None, |s| Some(s.online_since)),
                     });
@@ -391,7 +391,49 @@ pub async fn process_events(
                                     }
                                 }
                             }
-                            // TODO: Channel edit, message create, edit, and delete.
+                            OutboundMessage::ChannelUpdate {
+                                after: EssenceChannel::Guild(after),
+                                ..
+                            } => {
+                                match get_pool()
+                                    .fetch_guild(
+                                        after.guild_id,
+                                        GetGuildQuery {
+                                            roles: true,
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(Some(guild)) => {
+                                        if guild.partial.owner_id != session.user_id {
+                                            let mut roles = guild.roles.unwrap_or_default();
+                                            roles.sort_by_key(|r| r.position);
+
+                                            let perm = calculate_permissions_sorted(
+                                                session.user_id,
+                                                &roles,
+                                                Some(&after.overwrites),
+                                            );
+
+                                            if !perm.contains(Permissions::VIEW_CHANNEL) {
+                                                hidden_channels.insert(after.id);
+                                                continue;
+                                            } else {
+                                                hidden_channels.remove(&after.id);
+                                            }
+                                        }
+                                    }
+                                    Ok(None) => {
+                                        warn!("guild not found after channel update?");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        error!("failed to fetch guild: {e:?}");
+                                        break;
+                                    }
+                                }
+                            }
                             OutboundMessage::ChannelDelete { channel_id } => {
                                 if let Err(e) =
                                     unsubscribe(&amqp, channel_id, session.get_session_id_str())
@@ -422,7 +464,60 @@ pub async fn process_events(
                                     break;
                                 }
                             }
-                            // TODO: Channels
+                            OutboundMessage::MessageCreate { message, .. }
+                            | OutboundMessage::MessageUpdate { after: message, .. } => {
+                                if hidden_channels.contains(&message.channel_id) {
+                                    continue;
+                                }
+                            }
+                            OutboundMessage::RoleCreate { role }
+                            | OutboundMessage::RoleUpdate { after: role, .. } => {
+                                match get_pool()
+                                    .fetch_guild(
+                                        role.guild_id,
+                                        GetGuildQuery {
+                                            roles: true,
+                                            channels: true,
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(Some(guild)) => {
+                                        if guild.partial.owner_id != session.user_id {
+                                            if let Some(channels) = guild.channels {
+                                                if channels.is_empty() {
+                                                    continue;
+                                                }
+
+                                                let mut roles = guild.roles.unwrap_or_default();
+                                                roles.sort_by_key(|r| r.position);
+
+                                                for channel in channels {
+                                                    let perm = calculate_permissions_sorted(
+                                                        session.user_id,
+                                                        &roles,
+                                                        Some(&channel.overwrites),
+                                                    );
+
+                                                    if !perm.contains(Permissions::VIEW_CHANNEL) {
+                                                        hidden_channels.insert(channel.id);
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(None) => {
+                                        warn!("guild not found after role create/update?");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        error!("failed to fetch guild: {e:?}");
+                                        break;
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                         if let Err(e) = tx.lock().await.send(session.encode(&event)).await {
@@ -463,7 +558,36 @@ pub async fn process_events(
                                         .await;
                                     break;
                                 }
-                                // TODO: publish presence change
+
+                                if let Err(e) = publish_presence_change(
+                                    &amqp,
+                                    session.user_id,
+                                    Presence {
+                                        user_id: session.user_id,
+                                        status,
+                                        custom_status: None,
+                                        devices: match get_devices(session.user_id).await {
+                                            Ok(devices) => devices,
+                                            Err(e) => {
+                                                error!("redis error in get_devices: {e:?}");
+                                                break;
+                                            }
+                                        },
+                                        online_since: match get_first_session(session.user_id).await
+                                        {
+                                            Ok(devices) => devices
+                                                .map_or_else(|| None, |s| Some(s.online_since)),
+                                            Err(e) => {
+                                                error!("redis error in get_first_session: {e:?}");
+                                                break;
+                                            }
+                                        },
+                                    },
+                                )
+                                .await
+                                {
+                                    error!("error while publish presence change: {e:?}");
+                                }
                             }
                             _ => {}
                         }

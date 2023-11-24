@@ -74,12 +74,12 @@ pub async fn get_devices(user_id: u64) -> Result<Devices> {
     Ok(devices)
 }
 
-pub async fn get_last_session(user_id: u64) -> Result<Option<PresenceSession>> {
+pub async fn get_first_session(user_id: u64) -> Result<Option<PresenceSession>> {
     let key = format!("session-{user_id}");
 
     if let Some(session) = get_con()
         .await?
-        .lindex::<_, Option<Vec<u8>>>(key, -1)
+        .lindex::<_, Option<Vec<u8>>>(key, 0)
         .await?
     {
         Ok(Some(bincode::decode_from_slice(&session, CONFIG)?.0))
