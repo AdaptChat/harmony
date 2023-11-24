@@ -1,11 +1,14 @@
 use std::{net::IpAddr, time::Duration};
 
+use ahash::{HashSet, HashSetExt};
 use amqprs::channel::{
     BasicConsumeArguments, Channel, ConsumerMessage, QueueBindArguments, QueueDeclareArguments,
 };
 use essence::{
+    calculate_permissions_sorted,
     db::{get_pool, ChannelDbExt, GuildDbExt, UserDbExt},
-    models::{Channel as EssenceChannel, Presence},
+    http::guild::GetGuildQuery,
+    models::{Channel as EssenceChannel, Permissions, Presence},
     ws::{InboundMessage, OutboundMessage},
 };
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
@@ -279,8 +282,55 @@ pub async fn process_events(
                 }
             };
 
+            let guilds = match get_pool()
+                .fetch_all_guilds_for_user(
+                    session.user_id,
+                    GetGuildQuery {
+                        channels: true,
+                        roles: true,
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                Ok(guilds) => guilds,
+                Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_guilds_for_user"),
+            };
+
+            let mut hidden_channels = {
+                let mut hidden = HashSet::new();
+
+                for guild in guilds {
+                    if guild.partial.owner_id == session.user_id {
+                        continue;
+                    }
+
+                    if let Some(channels) = guild.channels {
+                        if channels.is_empty() {
+                            continue;
+                        }
+
+                        let mut roles = guild.roles.unwrap_or_default();
+                        roles.sort_by_key(|r| r.position);
+
+                        for channel in channels {
+                            let perm = calculate_permissions_sorted(
+                                session.user_id,
+                                &roles,
+                                Some(&channel.overwrites),
+                            );
+
+                            if !perm.contains(Permissions::VIEW_CHANNEL) {
+                                hidden.insert(channel.id);
+                            }
+                        }
+                    }
+                }
+
+                hidden
+            };
+
             let upstream_listener = async {
-                // TODO: Hidden channels
                 while let Some(ConsumerMessage {
                     content: Some(content),
                     ..
@@ -301,6 +351,47 @@ pub async fn process_events(
                                     break;
                                 }
                             }
+                            OutboundMessage::ChannelCreate {
+                                channel: EssenceChannel::Guild(chan),
+                            } => {
+                                match get_pool()
+                                    .fetch_guild(
+                                        chan.guild_id,
+                                        GetGuildQuery {
+                                            roles: true,
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(Some(guild)) => {
+                                        if guild.partial.owner_id != session.user_id {
+                                            let mut roles = guild.roles.unwrap_or_default();
+                                            roles.sort_by_key(|r| r.position);
+
+                                            let perm = calculate_permissions_sorted(
+                                                session.user_id,
+                                                &roles,
+                                                Some(&chan.overwrites),
+                                            );
+
+                                            if !perm.contains(Permissions::VIEW_CHANNEL) {
+                                                hidden_channels.insert(chan.id);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    Ok(None) => {
+                                        warn!("guild not found after channel create?");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        error!("failed to fetch guild: {e:?}");
+                                        break;
+                                    }
+                                }
+                            }
+                            // TODO: Channel edit, message create, edit, and delete.
                             OutboundMessage::ChannelDelete { channel_id } => {
                                 if let Err(e) =
                                     unsubscribe(&amqp, channel_id, session.get_session_id_str())
@@ -393,10 +484,14 @@ pub async fn process_events(
         }
         .await;
 
-        if let Err(e) = inner {
-            let _ = remove_session(session.user_id, session.get_session_id_str()).await;
-            let _ = amqp.close().await;
+        let cleanup_succeeded = {
+            let res = remove_session(session.user_id, session.get_session_id_str()).await;
+            let res_amqp = amqp.close().await;
 
+            res.is_ok() && res_amqp.is_ok()
+        };
+
+        if let Err(e) = inner {
             if let Ok(ref mut tx) = tx.try_lock() {
                 let _ = tx
                     .send(Message::Close(Some(CloseFrame {
@@ -406,11 +501,23 @@ pub async fn process_events(
                     .await;
             }
             error!(
-                "session {} errored: {e:?}, attempted cleanup",
+                "session {} errored: {e}, cleanup succeeded: {cleanup_succeeded}",
                 session.get_session_id_str()
             );
         } else {
-            info!("session {} disconnected", session.get_session_id_str());
+            if let Ok(ref mut tx) = tx.try_lock() {
+                let _ = tx
+                    .send(Message::Close(Some(CloseFrame {
+                        code: CloseCode::Normal,
+                        reason: "client disconnected".into(),
+                    })))
+                    .await;
+            }
+
+            info!(
+                "session {} disconnected, cleanup succeeded: {cleanup_succeeded}",
+                session.get_session_id_str()
+            );
         }
     } else {
         let _ = tx

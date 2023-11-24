@@ -181,9 +181,10 @@ pub async fn publish_presence_change(
     //     .collect::<JoinAll<_>>()
     //     .await;
 
-    let user_ids = get_pool()
+    let mut user_ids = get_pool()
         .fetch_observable_user_ids_for_user(user_id)
         .await?;
+    user_ids.push(user_id);
 
     for user_id in user_ids {
         events::publish_user_event(
