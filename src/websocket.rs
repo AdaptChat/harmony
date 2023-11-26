@@ -434,7 +434,7 @@ pub async fn process_events(
                                     }
                                 }
                             }
-                            OutboundMessage::ChannelDelete { channel_id } => {
+                            OutboundMessage::ChannelDelete { channel_id, .. } => {
                                 if let Err(e) =
                                     unsubscribe(&amqp, channel_id, session.get_session_id_str())
                                         .await
