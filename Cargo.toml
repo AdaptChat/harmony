@@ -31,6 +31,9 @@ tokio-tungstenite = "0.18"
 qstring = "0.7.2"
 dashmap = { version = "5.4" }
 
+[patch.crates-io]
+deadpool-redis = { git = 'https://github.com/jay3332/deadpool.git' }
+
 [profile.ci]
 debug = 2
 inherits = "dev"
