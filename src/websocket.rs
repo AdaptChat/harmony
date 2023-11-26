@@ -342,6 +342,7 @@ pub async fn process_events(
                         match &event {
                             OutboundMessage::ChannelCreate {
                                 channel: EssenceChannel::Dm(chan),
+                                ..,
                             } => {
                                 if let Err(e) =
                                     subscribe(&amqp, chan.id, session.get_session_id_str(), "topic")
@@ -353,6 +354,7 @@ pub async fn process_events(
                             }
                             OutboundMessage::ChannelCreate {
                                 channel: EssenceChannel::Guild(chan),
+                                ..,
                             } => {
                                 match get_pool()
                                     .fetch_guild(
