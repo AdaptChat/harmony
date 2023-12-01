@@ -173,11 +173,10 @@ impl UserSession {
             .fetch_client_user_by_id(self.user_id)
             .await?
             .ok_or_close("User does not exist")?;
-
         let relationships = db.fetch_relationships(self.user_id).await?;
-
         let dm_channels = db.fetch_all_dm_channels_for_user(self.user_id).await?;
-
+        let unacked = db.fetch_unacked(self.user_id, &guilds).await?;
+        
         Ok(OutboundMessage::Ready {
             session_id: self.id.clone(),
             user,
@@ -185,6 +184,7 @@ impl UserSession {
             dm_channels,
             presences,
             relationships,
+            unacked,
         })
     }
 }
