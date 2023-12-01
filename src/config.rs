@@ -117,6 +117,7 @@ impl UserSession {
             .fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all())
             .await?;
         let dm_channels = db.fetch_all_dm_channels_for_user(self.user_id).await?;
+        let unacked = db.fetch_unacked(self.user_id, &guilds).await?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.session_id_str.to_string(),
@@ -125,6 +126,7 @@ impl UserSession {
             dm_channels,
             presences,
             relationships,
+            unacked,
         })
     }
 }
