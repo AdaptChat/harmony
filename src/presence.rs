@@ -136,10 +136,16 @@ pub async fn any_session_exists(user_id: u64) -> Result<bool> {
 pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()> {
     let key = format!("presence-{user_id}");
 
-    get_con()
-        .await?
+    let mut con = get_con()
+        .await?;
+
+    if status == PresenceStatus::Offline {
+        con.del(key).await?;
+    } else {
+        con
         .set(key, bincode::encode_to_vec(status, CONFIG)?)
         .await?;
+    }
 
     Ok(())
 }
