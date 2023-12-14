@@ -8,7 +8,7 @@ use essence::{
     calculate_permissions_sorted,
     db::{get_pool, ChannelDbExt, GuildDbExt, UserDbExt},
     http::guild::GetGuildQuery,
-    models::{Channel as EssenceChannel, Permissions, Presence},
+    models::{Channel as EssenceChannel, Devices, Permissions, Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
 use futures_util::{SinkExt, StreamExt, TryStreamExt};
@@ -25,8 +25,8 @@ use crate::{
     error::Result,
     events::{subscribe, unsubscribe, CONFIG},
     presence::{
-        get_devices, get_first_session, get_presence, insert_session, publish_presence_change,
-        remove_session, update_presence, PresenceSession,
+        any_session_exists, get_devices, get_first_session, get_presence, insert_session,
+        publish_presence_change, remove_session, update_presence, PresenceSession,
     },
     socket_accept::WebSocketStream,
 };
@@ -610,12 +610,28 @@ pub async fn process_events(
         }
         .await;
 
-        let cleanup_succeeded = {
-            let res = remove_session(session.user_id, session.get_session_id_str()).await;
-            let res_amqp = amqp.close().await;
+        let cleanup: Result<()> = {
+            remove_session(session.user_id, session.get_session_id_str()).await?;
+            if !any_session_exists(session.user_id).await? {
+                publish_presence_change(
+                    &amqp,
+                    session.user_id,
+                    Presence {
+                        user_id: session.user_id,
+                        status: PresenceStatus::Offline,
+                        custom_status: None,
+                        devices: Devices::empty(),
+                        online_since: None,
+                    },
+                )
+                .await?;
+                update_presence(session.user_id, PresenceStatus::Offline).await?;
+            }
+            amqp.close().await?;
 
-            res.is_ok() && res_amqp.is_ok()
+            Ok(())
         };
+        let cleanup_succeeded = cleanup.is_ok();
 
         if let Err(e) = inner {
             if let Ok(ref mut tx) = tx.try_lock() {

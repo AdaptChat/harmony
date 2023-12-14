@@ -125,6 +125,14 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
     Ok(())
 }
 
+pub async fn any_session_exists(user_id: u64) -> Result<bool> {
+    Ok(get_con()
+        .await?
+        .llen::<_, u16>(format!("session-{user_id}"))
+        .await?
+        > 0)
+}
+
 pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()> {
     let key = format!("presence-{user_id}");
 
