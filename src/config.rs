@@ -185,6 +185,7 @@ impl UserSession {
             presences,
             relationships,
             unacked,
+            inbox: vec![],
         })
     }
 }
