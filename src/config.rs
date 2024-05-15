@@ -124,6 +124,7 @@ impl UserSession {
             user,
             guilds,
             dm_channels,
+            favorites: vec![],
             presences,
             relationships,
             unacked,
