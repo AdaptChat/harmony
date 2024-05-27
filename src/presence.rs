@@ -76,6 +76,17 @@ pub async fn get_devices(user_id: u64) -> Result<Devices> {
     Ok(devices)
 }
 
+pub async fn reset_all() -> Result<()> {
+    let mut con = get_con().await?;
+
+    let keys = con.keys::<_, String>("session-*").await?;
+    con.del(key).await?;
+    let keys = con.keys::<_, String>("presence-*").await?;
+    con.del(key).await?;
+
+    Ok(())
+}
+
 pub async fn get_last_session(user_id: u64) -> Result<Option<PresenceSession>> {
     let key = format!("session-{user_id}");
 
@@ -109,6 +120,7 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
 
     if sessions.len() == 1 {
         con.del::<_, ()>(key).await?;
+        update_presence(user_id, PresenceStatus::Offline).await?;
 
         return Ok(());
     }
@@ -130,10 +142,17 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
 pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()> {
     let key = format!("presence-{user_id}");
 
-    get_con()
-        .await?
-        .set(key, bincode::encode_to_vec(status, CONFIG)?)
-        .await?;
+    if status == PresenceStatus::Offline {
+        get_con()
+            .await?
+            .del(key)
+            .await?;
+    } else {    
+        get_con()
+            .await?
+            .set(key, bincode::encode_to_vec(status, CONFIG)?)
+            .await?;
+    }
 
     Ok(())
 }

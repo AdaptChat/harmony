@@ -64,6 +64,7 @@ async fn main() {
         .expect("Failed to create global event exchange");
 
     events::setup(con);
+    presence::reset_all().await.expect("failed to reset presence");
 
     let listener = TcpListener::bind("0.0.0.0:8076")
         .await

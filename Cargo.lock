@@ -2623,3 +2623,8 @@ name = "yasna"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aed2e7a52e3744ab4d0c05c20aa065258e84c49fd4226f5191b2ed29712710b4"
+
+[[patch.unused]]
+name = "deadpool-redis"
+version = "0.13.0"
+source = "git+https://github.com/jay3332/deadpool.git#a6fd8d826949a37705579151407f5354cc3f4d25"
