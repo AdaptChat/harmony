@@ -6,7 +6,7 @@ use essence::{
     models::Guild,
 };
 use flume::Sender;
-use futures_util::future::{JoinAll};
+use futures_util::future::JoinAll;
 use lapin::{
     options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::{
     config::{HiddenChannels, MessageFormat},
-    error::{Result},
+    error::Result,
     recv,
 };
 
