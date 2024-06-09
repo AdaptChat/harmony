@@ -35,6 +35,17 @@ pub struct PresenceSession {
     pub device: Device,
 }
 
+pub async fn reset_all() -> Result<()> {
+    let mut con = get_con().await?;
+
+    let keys = con.keys::<_, String>("session-*").await?;
+    con.del(key).await?;
+    let keys = con.keys::<_, String>("presence-*").await?;
+    con.del(key).await?;
+
+    Ok(())
+}
+
 async fn get_sessions(con: &mut Connection, key: impl AsRef<str>) -> Result<Vec<PresenceSession>> {
     if let Some(sessions) = con
         .lrange::<_, Option<Vec<Vec<u8>>>>(key.as_ref(), 0, -1)
@@ -136,15 +147,13 @@ pub async fn any_session_exists(user_id: u64) -> Result<bool> {
 pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()> {
     let key = format!("presence-{user_id}");
 
-    let mut con = get_con()
-        .await?;
+    let mut con = get_con().await?;
 
     if status == PresenceStatus::Offline {
         con.del(key).await?;
     } else {
-        con
-        .set(key, bincode::encode_to_vec(status, CONFIG)?)
-        .await?;
+        con.set(key, bincode::encode_to_vec(status, CONFIG)?)
+            .await?;
     }
 
     Ok(())

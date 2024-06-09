@@ -59,6 +59,8 @@ async fn entry() {
     //     chan
     // });
 
+    presence::reset_all().await.expect("failed to reset all");
+
     loop {
         tokio::select! {
             socket = listener.accept() => match socket {
