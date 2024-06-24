@@ -6,6 +6,7 @@ use essence::{
     models::Presence,
     ws::OutboundMessage,
 };
+use futures_util::{future::try_join4, Future};
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
@@ -108,16 +109,22 @@ impl UserSession {
     pub async fn get_ready_event(&self, presences: Vec<Presence>) -> Result<OutboundMessage> {
         let db = get_pool();
 
-        let user = db
-            .fetch_client_user_by_id(self.user_id)
-            .await?
-            .ok_or("user is deleted after connecting to ws and before ready event is generated")?;
-        let relationships = db.fetch_relationships(self.user_id).await?;
-        let guilds = db
-            .fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all())
-            .await?;
-        let dm_channels = db.fetch_all_dm_channels_for_user(self.user_id).await?;
+        async fn err_wrap<T, E: Into<essence::Error>>(
+            fut: impl Future<Output = std::result::Result<T, E>>,
+        ) -> std::result::Result<T, essence::Error> {
+            fut.await.map_err(Into::into)
+        }
+
+        let (user, relationships, guilds, dm_channels) = try_join4(
+            err_wrap(db.fetch_client_user_by_id(self.user_id)),
+            err_wrap(db.fetch_relationships(self.user_id)),
+            db.fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all()),
+            db.fetch_all_dm_channels_for_user(self.user_id),
+        )
+        .await?;
         let unacked = db.fetch_unacked(self.user_id, &guilds).await?;
+        let user = user
+            .ok_or("user is deleted after connecting to ws and before ready event is generated")?;
 
         Ok(OutboundMessage::Ready {
             session_id: self.session_id_str.to_string(),

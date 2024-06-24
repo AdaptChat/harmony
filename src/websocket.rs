@@ -11,7 +11,7 @@ use essence::{
     models::{Channel as EssenceChannel, Devices, Permissions, Presence, PresenceStatus},
     ws::{InboundMessage, OutboundMessage},
 };
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{future::TryJoinAll, SinkExt, StreamExt, TryStreamExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::{
     protocol::{frame::coding::CloseCode, CloseFrame},
@@ -22,7 +22,7 @@ use crate::{
     bail, bail_with_ctx,
     config::{ConnectionSettings, UserSession},
     err_with_ctx,
-    error::Result,
+    error::{Error, Result},
     events::{subscribe, unsubscribe, CONFIG},
     presence::{
         any_session_exists, get_devices, get_first_session, get_presence, insert_session,
@@ -50,13 +50,13 @@ pub async fn process_events(
         bail_with_ctx!(e, "failed to send hello event: tx.send");
     }
 
-    let hello_event = {
-        if let Ok(Ok(Some(mut hello))) =
+    let identify = {
+        if let Ok(Ok(Some(mut message))) =
             tokio::time::timeout(Duration::from_secs(5), rx.try_next()).await
         {
-            let hello_event = settings.decode::<InboundMessage>(&mut hello);
-            match hello_event {
-                Ok(hello_event) => hello_event,
+            let identify = settings.decode::<InboundMessage>(&mut message);
+            match identify {
+                Ok(identify) => identify,
                 Err(e) => {
                     let _ = tx
                         .lock()
@@ -66,7 +66,7 @@ pub async fn process_events(
                             reason: format!("deser error: {e:?}").into(),
                         })))
                         .await;
-                    bail_with_ctx!(e, "deserialize hello event: settings.decode");
+                    bail_with_ctx!(e, "deserialize identify event: settings.decode");
                 }
             }
         } else {
@@ -88,7 +88,7 @@ pub async fn process_events(
         token,
         status,
         device,
-    } = hello_event
+    } = identify
     {
         let session = match UserSession::new(settings, token).await {
             Ok(Some(session)) => session,
@@ -175,21 +175,24 @@ pub async fn process_events(
                     .map_err(|e| {
                         err_with_ctx!(e, "fetch presences: fetch_observable_user_ids_for_user")
                     })?;
-                let mut presences = Vec::with_capacity(users.len());
 
-                for user_id in users {
-                    presences.push(Presence {
-                        user_id,
-                        status: get_presence(user_id).await?,
-                        custom_status: None,
-                        devices: get_devices(user_id).await?,
-                        online_since: get_first_session(user_id)
-                            .await?
-                            .map_or_else(|| None, |s| Some(s.online_since)),
-                    });
-                }
+                users
+                    .into_iter()
+                    .map(|user_id| async move {
+                        let presence = Presence {
+                            user_id,
+                            status: get_presence(user_id).await?,
+                            custom_status: None,
+                            devices: get_devices(user_id).await?,
+                            online_since: get_first_session(user_id)
+                                .await?
+                                .map_or_else(|| None, |s| Some(s.online_since)),
+                        };
 
-                presences
+                        Ok::<Presence, Error>(presence)
+                    })
+                    .collect::<TryJoinAll<_>>()
+                    .await?
             };
 
             match session.get_ready_event(presences).await {
@@ -201,15 +204,6 @@ pub async fn process_events(
                 Err(e) => {
                     bail_with_ctx!(e, "generate ready event: session.get_ready_event");
                 }
-            }
-
-            if let Err(e) = amqp
-                .queue_declare(QueueDeclareArguments::transient_autodelete(
-                    session.get_session_id_str(),
-                ))
-                .await
-            {
-                bail_with_ctx!(e, "declare queue: queue_declare");
             }
 
             match get_pool()
@@ -249,11 +243,21 @@ pub async fn process_events(
                 }
             }
 
+            // TODO: Resume, disable auto-delete for queues
+            if let Err(e) = amqp
+                .queue_declare(QueueDeclareArguments::transient_autodelete(
+                    session.get_session_id_str(),
+                ))
+                .await
+            {
+                bail_with_ctx!(e, "declare queue: queue_declare");
+            }
+
             if let Err(e) = amqp
                 .queue_bind(QueueBindArguments {
                     queue: session.get_session_id_str().to_string(),
                     exchange: "events".to_string(),
-                    routing_key: session.user_id.to_string(),
+                    routing_key: format!("#.{}.#", session.user_id),
                     ..Default::default()
                 })
                 .await
@@ -311,7 +315,7 @@ pub async fn process_events(
                         }
 
                         let mut roles = guild.roles.unwrap_or_default();
-                        roles.sort_by_key(|r| r.position);
+                        roles.sort_unstable_by_key(|r| r.position);
 
                         for channel in channels {
                             let perm = calculate_permissions_sorted(

@@ -24,7 +24,7 @@ pub const CONFIG: Configuration = bincode::config::standard();
 async fn publish(
     channel: &Channel,
     exchange: impl ToString,
-    auto_delete: bool,
+    exchange_auto_delete: bool,
     routing_key: impl ToString,
     data: impl Encode,
 ) -> Result<()> {
@@ -33,7 +33,7 @@ async fn publish(
     channel
         .exchange_declare(
             ExchangeDeclareArguments::of_type(&exchange.to_string(), ExchangeType::Topic)
-                .auto_delete(auto_delete)
+                .auto_delete(exchange_auto_delete)
                 .finish(),
         )
         .await?;
@@ -55,8 +55,29 @@ async fn publish(
     Ok(())
 }
 
-pub async fn publish_user_event(channel: &Channel, user_id: u64, event: impl Encode) -> Result<()> {
+pub async fn _publish_user_event(
+    channel: &Channel,
+    user_id: u64,
+    event: impl Encode,
+) -> Result<()> {
     publish(channel, "events", false, user_id.to_string(), event).await?;
+
+    Ok(())
+}
+
+pub async fn publish_bulk_event(
+    channel: &Channel,
+    user_ids: impl AsRef<[u64]>,
+    event: impl Encode,
+) -> Result<()> {
+    let routing_key = user_ids
+        .as_ref()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(".");
+
+    publish(channel, "events", false, routing_key, event).await?;
 
     Ok(())
 }

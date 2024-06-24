@@ -9,9 +9,8 @@ use essence::{
     models::{Device, Devices, Presence, PresenceStatus},
     ws::OutboundMessage,
 };
-use futures_util::future::JoinAll;
 
-use crate::{error::Result, events};
+use crate::{error::Result, events::publish_bulk_event};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 const CONFIG: Configuration = bincode::config::standard();
@@ -39,9 +38,9 @@ pub async fn reset_all() -> Result<()> {
     let mut con = get_con().await?;
 
     let keys = con.keys::<_, String>("session-*").await?;
-    con.del(key).await?;
+    con.del(keys).await?;
     let keys = con.keys::<_, String>("presence-*").await?;
-    con.del(key).await?;
+    con.del(keys).await?;
 
     Ok(())
 }
@@ -181,44 +180,19 @@ pub async fn publish_presence_change(
     user_id: u64,
     presence: Presence,
 ) -> Result<()> {
-    // let res = get_pool()
-    //     .fetch_observable_user_ids_for_user(user_id)
-    //     .await?
-    //     .into_iter()
-    //     .map(|user_id| {
-    //         let presence = presence.clone();
-
-    //         async move {
-    //             events::publish_user_event(
-    //                 channel,
-    //                 user_id,
-    //                 OutboundMessage::PresenceUpdate {
-    //                     presence: presence.clone(),
-    //                 },
-    //             )
-    //             .await?;
-
-    //             Result::Ok(())
-    //         }
-    //     })
-    //     .collect::<JoinAll<_>>()
-    //     .await;
-
     let mut user_ids = get_pool()
         .fetch_observable_user_ids_for_user(user_id)
         .await?;
     user_ids.push(user_id);
 
-    for user_id in user_ids {
-        events::publish_user_event(
-            channel,
-            user_id,
-            OutboundMessage::PresenceUpdate {
-                presence: presence.clone(),
-            },
-        )
-        .await?;
-    }
+    publish_bulk_event(
+        channel,
+        user_ids,
+        OutboundMessage::PresenceUpdate {
+            presence: presence.clone(),
+        },
+    )
+    .await?;
 
     Ok(())
 }
