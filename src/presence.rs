@@ -192,19 +192,16 @@ pub async fn publish_presence_change(
         .await?;
     user_ids.push(user_id);
 
-    user_ids
-        .into_iter()
-        .map(|user_id| {
-            publish_user_event(
-                channel,
-                user_id,
-                OutboundMessage::PresenceUpdate {
-                    presence: presence.clone(),
-                },
-            )
-        })
-        .collect::<TryJoinAll<_>>()
+    for user_id in user_ids {
+        events::publish_user_event(
+            channel,
+            user_id,
+            OutboundMessage::PresenceUpdate {
+                presence: presence.clone(),
+            },
+        )
         .await?;
+    }
 
     Ok(())
 }
