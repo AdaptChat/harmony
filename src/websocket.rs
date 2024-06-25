@@ -233,6 +233,16 @@ pub async fn process_events(
                 }
             }
 
+            // TODO: Resume, disable auto-delete for queues
+            if let Err(e) = amqp
+                .queue_declare(QueueDeclareArguments::transient_autodelete(
+                    session.get_session_id_str(),
+                ))
+                .await
+            {
+                bail_with_ctx!(e, "declare queue: queue_declare");
+            }
+
             match get_pool()
                 .fetch_all_guild_ids_for_user(session.user_id)
                 .await
@@ -268,16 +278,6 @@ pub async fn process_events(
                 Err(e) => {
                     bail_with_ctx!(e, "fetch dm channels: fetch_all_dm_channels_for_user");
                 }
-            }
-
-            // TODO: Resume, disable auto-delete for queues
-            if let Err(e) = amqp
-                .queue_declare(QueueDeclareArguments::transient_autodelete(
-                    session.get_session_id_str(),
-                ))
-                .await
-            {
-                bail_with_ctx!(e, "declare queue: queue_declare");
             }
 
             if let Err(e) = amqp
