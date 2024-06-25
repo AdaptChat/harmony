@@ -9,8 +9,9 @@ use essence::{
     models::{Device, Devices, Presence, PresenceStatus},
     ws::OutboundMessage,
 };
+use futures_util::future::TryJoinAll;
 
-use crate::{error::Result, events::publish_bulk_event};
+use crate::{error::Result, events::publish_user_event};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 const CONFIG: Configuration = bincode::config::standard();
@@ -191,14 +192,19 @@ pub async fn publish_presence_change(
         .await?;
     user_ids.push(user_id);
 
-    publish_bulk_event(
-        channel,
-        user_ids,
-        OutboundMessage::PresenceUpdate {
-            presence: presence.clone(),
-        },
-    )
-    .await?;
+    user_ids
+        .into_iter()
+        .map(|user_id| {
+            publish_user_event(
+                channel,
+                user_id,
+                OutboundMessage::PresenceUpdate {
+                    presence: presence.clone(),
+                },
+            )
+        })
+        .collect::<TryJoinAll<_>>()
+        .await?;
 
     Ok(())
 }

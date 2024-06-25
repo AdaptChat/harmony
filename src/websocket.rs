@@ -284,7 +284,7 @@ pub async fn process_events(
                 .queue_bind(QueueBindArguments {
                     queue: session.get_session_id_str().to_string(),
                     exchange: "events".to_string(),
-                    routing_key: format!("#.{}.#", session.user_id),
+                    routing_key: format!("{}", session.user_id),
                     ..Default::default()
                 })
                 .await
