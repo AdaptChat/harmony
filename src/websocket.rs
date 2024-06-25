@@ -5,10 +5,13 @@ use amqprs::channel::{
     BasicConsumeArguments, Channel, ConsumerMessage, QueueBindArguments, QueueDeclareArguments,
 };
 use essence::{
-    calculate_permissions_sorted,
-    db::{get_pool, ChannelDbExt, GuildDbExt, UserDbExt},
+    calculate_permissions, calculate_permissions_sorted,
+    db::{get_pool, ChannelDbExt, GuildDbExt, MemberDbExt, UserDbExt},
     http::guild::GetGuildQuery,
-    models::{Channel as EssenceChannel, Devices, Permissions, Presence, PresenceStatus},
+    models::{
+        Channel as EssenceChannel, Devices, PermissionOverwrite, Permissions, Presence,
+        PresenceStatus, Role,
+    },
     ws::{InboundMessage, OutboundMessage},
 };
 use futures_util::{future::TryJoinAll, SinkExt, StreamExt, TryStreamExt};
@@ -30,6 +33,30 @@ use crate::{
     },
     socket_accept::WebSocketStream,
 };
+
+async fn update_hidden_channels(
+    guild_id: u64,
+    user_id: u64,
+    channel_id: u64,
+    hidden_channels: &mut HashSet<u64>,
+    roles: impl AsMut<[Role]>,
+    overwrites: Option<&[PermissionOverwrite]>,
+) -> Result<()> {
+    let member = get_pool()
+        .fetch_member_by_id(guild_id, user_id)
+        .await?
+        .ok_or("member not found")?;
+
+    let perm = calculate_permissions(user_id, member.permissions, roles, overwrites);
+
+    if perm.contains(Permissions::VIEW_CHANNEL) {
+        hidden_channels.remove(&channel_id);
+    } else {
+        hidden_channels.insert(channel_id);
+    }
+
+    Ok(())
+}
 
 pub async fn process_events(
     websocket: WebSocketStream,
@@ -308,6 +335,10 @@ pub async fn process_events(
                     if guild.partial.owner_id == session.user_id {
                         continue;
                     }
+                    let base_permissions = get_pool().fetch_member_by_id(guild.partial.id, session.user_id)
+                        .await?
+                        .ok_or("member not found while creating hidden_channels")?
+                        .permissions;
 
                     if let Some(channels) = guild.channels {
                         if channels.is_empty() {
@@ -320,6 +351,7 @@ pub async fn process_events(
                         for channel in channels {
                             let perm = calculate_permissions_sorted(
                                 session.user_id,
+                                base_permissions,
                                 &roles,
                                 Some(&channel.overwrites),
                             );
@@ -372,18 +404,16 @@ pub async fn process_events(
                                 {
                                     Ok(Some(guild)) => {
                                         if guild.partial.owner_id != session.user_id {
-                                            let mut roles = guild.roles.unwrap_or_default();
-                                            roles.sort_by_key(|r| r.position);
-
-                                            let perm = calculate_permissions_sorted(
+                                            if let Err(e) = update_hidden_channels(
+                                                guild.partial.id,
                                                 session.user_id,
-                                                &roles,
-                                                Some(&chan.overwrites),
-                                            );
-
-                                            if !perm.contains(Permissions::VIEW_CHANNEL) {
-                                                hidden_channels.insert(chan.id);
-                                                continue;
+                                                chan.id,
+                                                &mut hidden_channels,
+                                                guild.roles.unwrap_or_default(),
+                                                Some(&chan.overwrites)
+                                            ).await {
+                                                error!("failed to fetch member when updating permissions in ChannelCreate; guild: {} user: {} error: {e}", guild.partial.id, session.user_id);
+                                                break;
                                             }
                                         }
                                     }
@@ -398,12 +428,12 @@ pub async fn process_events(
                                 }
                             }
                             OutboundMessage::ChannelUpdate {
-                                after: EssenceChannel::Guild(after),
+                                after: EssenceChannel::Guild(chan),
                                 ..
                             } => {
                                 match get_pool()
                                     .fetch_guild(
-                                        after.guild_id,
+                                        chan.guild_id,
                                         GetGuildQuery {
                                             roles: true,
                                             ..Default::default()
@@ -413,20 +443,16 @@ pub async fn process_events(
                                 {
                                     Ok(Some(guild)) => {
                                         if guild.partial.owner_id != session.user_id {
-                                            let mut roles = guild.roles.unwrap_or_default();
-                                            roles.sort_by_key(|r| r.position);
-
-                                            let perm = calculate_permissions_sorted(
+                                            if let Err(e) = update_hidden_channels(
+                                                guild.partial.id,
                                                 session.user_id,
-                                                &roles,
-                                                Some(&after.overwrites),
-                                            );
-
-                                            if !perm.contains(Permissions::VIEW_CHANNEL) {
-                                                hidden_channels.insert(after.id);
-                                                continue;
-                                            } else {
-                                                hidden_channels.remove(&after.id);
+                                                chan.id,
+                                                &mut hidden_channels,
+                                                guild.roles.unwrap_or_default(),
+                                                Some(&chan.overwrites)
+                                            ).await {
+                                                error!("failed to fetch member when updating permissions in ChannelUpdate; guild: {} user: {} error: {e}", guild.partial.id, session.user_id);
+                                                break;
                                             }
                                         }
                                     }
@@ -497,11 +523,18 @@ pub async fn process_events(
                                                 }
 
                                                 let mut roles = guild.roles.unwrap_or_default();
-                                                roles.sort_by_key(|r| r.position);
+                                                roles.sort_unstable_by_key(|r| r.position);
+
+                                                let Ok(Some(member)) = get_pool().fetch_member_by_id(guild.partial.id, session.user_id).await else {
+                                                    error!("failed to fetch member when updating permissions in RoleUpdate; guild: {} user: {}", guild.partial.id, session.user_id);
+                                                    break;
+                                                };
+                                                let base_permissions = member.permissions;
 
                                                 for channel in channels {
                                                     let perm = calculate_permissions_sorted(
                                                         session.user_id,
+                                                        base_permissions,
                                                         &roles,
                                                         Some(&channel.overwrites),
                                                     );

@@ -436,7 +436,7 @@ dependencies = [
 [[package]]
 name = "essence"
 version = "0.6.0"
-source = "git+https://github.com/AdaptChat/essence.git#02fab157e3f4a7d5f61650dcfa9cab2730fc2d4b"
+source = "git+https://github.com/AdaptChat/essence.git#c955a29d90f25a34b9e1b7f0b1e6bfad760fa777"
 dependencies = [
  "async-trait",
  "bincode",
@@ -1824,9 +1824,9 @@ dependencies = [
 
 [[package]]
 name = "subtle"
-version = "2.6.0"
+version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d0208408ba0c3df17ed26eb06992cb1a1268d41b2c0e12e65203fbe3972cee5"
+checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
@@ -2088,9 +2088,9 @@ checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "uuid"
-version = "1.8.0"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a183cf7feeba97b4dd1c0d46788634f6221d87fa961b305bed08c851829efcc0"
+checksum = "5de17fd2f7da591098415cff336e12965a28061ddace43b59cb3c430179c9439"
 dependencies = [
  "getrandom",
  "rand",
