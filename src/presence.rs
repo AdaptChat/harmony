@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 use amqprs::channel::Channel;
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
-use deadpool_redis::{redis::AsyncCommands, Config, Connection, Pool, Runtime};
+use deadpool_redis::{redis::{AsyncCommands, Pipeline}, Config, Connection, Pool, Runtime};
 use essence::{
     db::{get_pool, UserDbExt},
     models::{Device, Devices, Presence, PresenceStatus},
@@ -37,10 +37,16 @@ pub struct PresenceSession {
 pub async fn reset_all() -> Result<()> {
     let mut con = get_con().await?;
 
-    let keys = con.keys::<_, String>("session-*").await?;
-    con.del(keys).await?;
-    let keys = con.keys::<_, String>("presence-*").await?;
-    con.del(keys).await?;
+    let session_keys = con.keys::<_, Vec<String>>("session-*").await?;
+    let presence_keys = con.keys::<_, Vec<String>>("presence-*").await?;
+
+    let mut pipe = Pipeline::with_capacity(session_keys.len() + presence_keys.len());
+
+    for key in session_keys.into_iter().chain(presence_keys.into_iter()) {
+        pipe.del(key).ignore();
+    }
+
+    let _: () = pipe.query_async(&mut con).await?;
 
     Ok(())
 }
