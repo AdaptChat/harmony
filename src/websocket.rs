@@ -202,6 +202,9 @@ pub async fn process_events(
                 presences.push(presence);
 
                 for user_id in users {
+                    if user_id == session.user_id {
+                        continue;
+                    }
                     presences.push(Presence {
                         user_id,
                         status: get_presence(user_id).await?,
