@@ -193,7 +193,7 @@ pub async fn publish_presence_change(
     user_ids.push(user_id);
 
     for user_id in user_ids {
-        events::publish_user_event(
+        publish_user_event(
             channel,
             user_id,
             OutboundMessage::PresenceUpdate {
