@@ -203,23 +203,21 @@ pub async fn process_events(
                         err_with_ctx!(e, "fetch presences: fetch_observable_user_ids_for_user")
                     })?;
 
-                users
-                    .into_iter()
-                    .map(|user_id| async move {
-                        let presence = Presence {
-                            user_id,
-                            status: get_presence(user_id).await?,
-                            custom_status: None,
-                            devices: get_devices(user_id).await?,
-                            online_since: get_first_session(user_id)
-                                .await?
-                                .map_or_else(|| None, |s| Some(s.online_since)),
-                        };
+                let mut presences = Vec::with_capacity(users.len());
 
-                        Ok::<Presence, Error>(presence)
-                    })
-                    .collect::<TryJoinAll<_>>()
-                    .await?
+                for user_id in users {
+                    presences.push(Presence {
+                        user_id,
+                        status: get_presence(user_id).await?,
+                        custom_status: None,
+                        devices: get_devices(user_id).await?,
+                        online_since: get_first_session(user_id)
+                            .await?
+                            .map_or_else(|| None, |s| Some(s.online_since)),
+                    });
+                }
+
+                presences
             };
 
             match session.get_ready_event(presences).await {
