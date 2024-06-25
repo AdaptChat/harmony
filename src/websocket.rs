@@ -173,23 +173,18 @@ pub async fn process_events(
             }
 
             info!("publishing presence change");
-            if let Err(e) = publish_presence_change(
-                &amqp,
-                session.user_id,
-                Presence {
-                    user_id: session.user_id,
-                    status,
-                    custom_status: None,
-                    devices: get_devices(session.user_id).await?, // TODO: Err
-                    online_since: Some(
-                        get_first_session(session.user_id)
-                            .await?
-                            .map_or_else(|| online_since, |s| s.online_since),
-                    ),
-                },
-            )
-            .await
-            {
+            let presence = Presence {
+                user_id: session.user_id,
+                status,
+                custom_status: None,
+                devices: get_devices(session.user_id).await?, // TODO: Err
+                online_since: Some(
+                    get_first_session(session.user_id)
+                        .await?
+                        .map_or_else(|| online_since, |s| s.online_since),
+                ),
+            };
+            if let Err(e) = publish_presence_change(&amqp, session.user_id, presence.clone()).await {
                 bail_with_ctx!(e, "publish_presence_change");
             }
 
@@ -204,6 +199,7 @@ pub async fn process_events(
                     })?;
 
                 let mut presences = Vec::with_capacity(users.len());
+                presences.push(presence);
 
                 for user_id in users {
                     presences.push(Presence {
