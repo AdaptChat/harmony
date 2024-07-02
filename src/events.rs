@@ -55,11 +55,7 @@ async fn publish(
     Ok(())
 }
 
-pub async fn publish_user_event(
-    channel: &Channel,
-    user_id: u64,
-    event: impl Encode,
-) -> Result<()> {
+pub async fn publish_user_event(channel: &Channel, user_id: u64, event: impl Encode) -> Result<()> {
     publish(channel, "events", false, user_id.to_string(), event).await?;
 
     Ok(())

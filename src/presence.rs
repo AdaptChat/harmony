@@ -3,7 +3,10 @@ use std::sync::OnceLock;
 use amqprs::channel::Channel;
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
-use deadpool_redis::{redis::{AsyncCommands, Pipeline}, Config, Connection, Pool, Runtime};
+use deadpool_redis::{
+    redis::{AsyncCommands, Pipeline},
+    Config, Connection, Pool, Runtime,
+};
 use essence::{
     db::{get_pool, UserDbExt},
     models::{Device, Devices, Presence, PresenceStatus},
@@ -150,7 +153,11 @@ pub async fn any_session_exists(user_id: u64) -> Result<bool> {
         > 0)
 }
 
-pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()> {
+pub async fn update_presence(
+    user_id: u64,
+    status: PresenceStatus,
+    custom_status: Option<String>,
+) -> Result<()> {
     let key = format!("presence-{user_id}");
 
     let mut con = get_con().await?;
@@ -158,14 +165,17 @@ pub async fn update_presence(user_id: u64, status: PresenceStatus) -> Result<()>
     if status == PresenceStatus::Offline {
         con.del(key).await?;
     } else {
-        con.set(key, bincode::encode_to_vec(status, CONFIG)?)
-            .await?;
+        con.set(
+            key,
+            bincode::encode_to_vec((status, custom_status), CONFIG)?,
+        )
+        .await?;
     }
 
     Ok(())
 }
 
-pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
+pub async fn get_presence(user_id: u64) -> Result<(PresenceStatus, Option<String>)> {
     let key = format!("presence-{user_id}");
 
     Ok(get_con()
@@ -173,7 +183,7 @@ pub async fn get_presence(user_id: u64) -> Result<PresenceStatus> {
         .get::<_, Option<Vec<u8>>>(key)
         .await?
         .map_or_else(
-            || PresenceStatus::Offline,
+            || (Default::default(), Default::default()),
             |r| {
                 bincode::decode_from_slice(&r, CONFIG)
                     .expect("Malformed value in key: {key}")

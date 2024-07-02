@@ -114,6 +114,7 @@ pub async fn process_events(
     if let InboundMessage::Identify {
         token,
         status,
+        custom_status,
         device,
     } = identify
     {
@@ -168,7 +169,24 @@ pub async fn process_events(
                 bail_with_ctx!(e, "insert_session");
             }
 
-            if let Err(e) = update_presence(session.user_id, status).await {
+            if let Some(status) = &custom_status {
+                if status.len() > 256 {
+                    if let Err(e) = tx
+                        .lock()
+                        .await
+                        .send(Message::Close(
+                            Some(CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: "status length exceeds 256 characters".into() 
+                        }))).await {
+                            warn!("failed to send: {e:?}");
+                    }
+
+                    return Err("status length exceeds 256 characters".into());
+                }
+            }
+
+            if let Err(e) = update_presence(session.user_id, status, custom_status.clone()).await {
                 bail_with_ctx!(e, "update_presence");
             }
 
@@ -176,7 +194,7 @@ pub async fn process_events(
             let presence = Presence {
                 user_id: session.user_id,
                 status,
-                custom_status: None,
+                custom_status,
                 devices: get_devices(session.user_id).await?, // TODO: Err
                 online_since: Some(
                     get_first_session(session.user_id)
@@ -205,10 +223,12 @@ pub async fn process_events(
                     if user_id == session.user_id {
                         continue;
                     }
+                    let presence_status = get_presence(user_id).await?;
+
                     presences.push(Presence {
                         user_id,
-                        status: get_presence(user_id).await?,
-                        custom_status: None,
+                        status: presence_status.0,
+                        custom_status: presence_status.1,
                         devices: get_devices(user_id).await?,
                         online_since: get_first_session(user_id)
                             .await?
@@ -580,9 +600,26 @@ pub async fn process_events(
                                 }
                             }
                             InboundMessage::UpdatePresence {
-                                status: Some(status),
+                                status,
+                                custom_status
                             } => {
-                                if let Err(e) = update_presence(session.user_id, status).await {
+                                if let Some(status) = &custom_status {
+                                    if status.len() > 256 {
+                                        if let Err(e) = tx
+                                            .lock()
+                                            .await
+                                            .send(Message::Close(
+                                                Some(CloseFrame {
+                                                    code: CloseCode::Policy,
+                                                    reason: "status length exceeds 256 characters".into() 
+                                            }))).await {
+                                                warn!("failed to send: {e:?}");
+                                        }
+                                        break;
+                                    }
+                                }
+
+                                if let Err(e) = update_presence(session.user_id, status, custom_status.clone()).await {
                                     error!("failed to update presence, redis error: {e:?}");
                                     let _ = tx
                                         .lock()
@@ -601,7 +638,7 @@ pub async fn process_events(
                                     Presence {
                                         user_id: session.user_id,
                                         status,
-                                        custom_status: None,
+                                        custom_status,
                                         devices: match get_devices(session.user_id).await {
                                             Ok(devices) => devices,
                                             Err(e) => {
@@ -659,7 +696,7 @@ pub async fn process_events(
                     },
                 )
                 .await?;
-                update_presence(session.user_id, PresenceStatus::Offline).await?;
+                update_presence(session.user_id, PresenceStatus::Offline, None).await?;
             }
             amqp.close().await?;
 
