@@ -183,7 +183,7 @@ pub async fn get_presence(user_id: u64) -> Result<(PresenceStatus, Option<String
         .get::<_, Option<Vec<u8>>>(key)
         .await?
         .map_or_else(
-            || (Default::default(), Default::default()),
+            || (PresenceStatus::Offline, Default::default()),
             |r| {
                 bincode::decode_from_slice(&r, CONFIG)
                     .expect("Malformed value in key: {key}")
