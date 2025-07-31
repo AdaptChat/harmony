@@ -1,6 +1,6 @@
 [package]
 name = "harmony"
-authors = ["Cryptex"]
+authors = ["Cryptex", "jay3332"]
 version = "0.1.0"
 edition = "2021"
 
@@ -14,10 +14,10 @@ qstring = "0.7"
 amqprs = { version = "1.5", features = ["traces", "compliance_assert"] }
 uuid = { version = "1.5", features = ["v4", "fast-rng"] }
 ahash = "0.8"
-async-trait = "0.1"
+async-trait = "0.1.88"
 futures-util = "0.3"
 simd-json = "0.13"
-essence = { git = "https://github.com/AdaptChat/essence.git", features = ["db"] }
+essence = { path = "../essence", features = ["db"] }
 rmp-serde = "1.1"
 serde = "1"
 dotenvy = "0.15"
