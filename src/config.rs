@@ -2,7 +2,6 @@ use std::{convert::Infallible, ops::Deref, str::FromStr};
 
 use essence::{
     db::{get_pool, AuthDbExt, ChannelDbExt, GuildDbExt, UserDbExt},
-    http::guild::GetGuildQuery,
     models::Presence,
     ws::OutboundMessage,
 };
@@ -118,11 +117,12 @@ impl UserSession {
         let (user, relationships, guilds, dm_channels) = try_join4(
             err_wrap(db.fetch_client_user_by_id(self.user_id)),
             err_wrap(db.fetch_relationships(self.user_id)),
-            db.fetch_all_guilds_for_user(self.user_id, GetGuildQuery::all()),
+            db.fetch_partial_guilds_for_user(self.user_id, None),
             db.fetch_all_dm_channels_for_user(self.user_id),
         )
         .await?;
-        let unacked = db.fetch_unacked(self.user_id, &guilds).await?;
+        let guild_ids = guilds.iter().map(|g| g.id).collect::<Vec<_>>();
+        let unacked = db.fetch_unacked(self.user_id, &guild_ids).await?;
         let user = user
             .ok_or("user is deleted after connecting to ws and before ready event is generated")?;
 

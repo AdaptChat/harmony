@@ -106,8 +106,7 @@ pub async fn process_events(
                 })))
                 .await;
 
-            return Err(crate::error::Error::default()
-                .ctx("failed to receive `identify` event within 5 seconds"));
+            return Err(Error::default().ctx("failed to receive `identify` event within 5 seconds"));
         }
     };
 
@@ -116,6 +115,7 @@ pub async fn process_events(
         status,
         custom_status,
         device,
+        ..
     } = identify
     {
         let session = match UserSession::new(settings, token).await {
@@ -330,19 +330,28 @@ pub async fn process_events(
                 }
             };
 
-            let guilds = match get_pool()
-                .fetch_all_guilds_for_user(
-                    session.user_id,
-                    GetGuildQuery {
-                        channels: true,
-                        roles: true,
-                        ..Default::default()
-                    },
-                )
-                .await
-            {
-                Ok(guilds) => guilds,
-                Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_guilds_for_user"),
+            let guilds = {
+                let partial_guilds = match get_pool()
+                    .fetch_partial_guilds_for_user(session.user_id, None)
+                    .await
+                {
+                    Ok(guilds) => guilds,
+                    Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_partial_guilds_for_user"),
+                };
+                match get_pool()
+                    .fetch_all_guilds_for_user(
+                        partial_guilds,
+                        GetGuildQuery {
+                            channels: true,
+                            roles: true,
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                {
+                    Ok(guilds) => guilds,
+                    Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_guilds_for_user"),
+                }
             };
 
             let mut hidden_channels = {
@@ -660,6 +669,51 @@ pub async fn process_events(
                                 .await
                                 {
                                     error!("error while publish presence change: {e:?}");
+                                }
+                            }
+                            InboundMessage::RequestGuilds { guild_ids, nonce } => {
+                                if guild_ids.len() > 20 {
+                                    if let Err(e) = tx
+                                        .lock()
+                                        .await
+                                        .send(Message::Close(Some(CloseFrame {
+                                            code: CloseCode::Policy,
+                                            reason: "at most 20 guild IDs may be requested at once".into(),
+                                        })))
+                                        .await
+                                    {
+                                        warn!("failed to send: {e:?}");
+                                    }
+                                    break;
+                                }
+
+                                let guilds = match get_pool()
+                                    .fetch_guilds_by_ids(
+                                        session.user_id,
+                                        &guild_ids,
+                                        GetGuildQuery {
+                                            channels: true,
+                                            roles: true,
+                                            members: true,
+                                            emojis: true,
+                                        },
+                                    )
+                                    .await
+                                {
+                                    Ok(guilds) => guilds,
+                                    Err(e) => {
+                                        error!("failed to fetch guilds for RequestGuilds: {e:?}");
+                                        break;
+                                    }
+                                };
+
+                                let event = OutboundMessage::GuildsAvailable {
+                                    guilds,
+                                    nonce: nonce.clone(),
+                                };
+                                if let Err(e) = tx.lock().await.send(session.encode(&event)).await {
+                                    debug!("failed to send GuildsAvailable to client: {e:?}");
+                                    break;
                                 }
                             }
                             _ => {}
