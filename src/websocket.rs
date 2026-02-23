@@ -14,7 +14,7 @@ use essence::{
     },
     ws::{InboundMessage, OutboundMessage},
 };
-use futures_util::{future::TryJoinAll, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::{
     protocol::{frame::coding::CloseCode, CloseFrame},
@@ -28,7 +28,7 @@ use crate::{
     error::{Error, Result},
     events::{subscribe, unsubscribe, CONFIG},
     presence::{
-        any_session_exists, get_devices, get_first_session, get_presence, insert_session,
+        any_session_exists, get_devices, get_first_session, get_presences_bulk, insert_session,
         publish_presence_change, remove_session, update_presence, PresenceSession,
     },
     socket_accept::WebSocketStream,
@@ -78,8 +78,8 @@ pub async fn process_events(
     }
 
     let identify = {
-        if let Ok(Ok(Some(mut message))) =
-            tokio::time::timeout(Duration::from_secs(5), rx.try_next()).await
+        if let Ok(Some(Ok(mut message))) =
+            tokio::time::timeout(Duration::from_secs(5), rx.next()).await
         {
             let identify = settings.decode::<InboundMessage>(&mut message);
             match identify {
@@ -209,30 +209,26 @@ pub async fn process_events(
             info!("published user {}'s presence.", session.user_id);
 
             let presences = {
-                let users = get_pool()
+                let mut observable = get_pool()
                     .fetch_observable_user_ids_for_user(session.user_id)
                     .await
                     .map_err(|e| {
                         err_with_ctx!(e, "fetch presences: fetch_observable_user_ids_for_user")
                     })?;
+                observable.retain(|&id| id != session.user_id);
 
-                let mut presences = Vec::with_capacity(users.len());
+                let bulk = get_presences_bulk(&observable).await?;
+                let mut presences = Vec::with_capacity(observable.len() + 1);
                 presences.push(presence);
-
-                for user_id in users {
-                    if user_id == session.user_id {
-                        continue;
-                    }
-                    let presence_status = get_presence(user_id).await?;
-
+                for (user_id, (status, custom_status, devices, online_since)) in
+                    observable.into_iter().zip(bulk)
+                {
                     presences.push(Presence {
                         user_id,
-                        status: presence_status.0,
-                        custom_status: presence_status.1,
-                        devices: get_devices(user_id).await?,
-                        online_since: get_first_session(user_id)
-                            .await?
-                            .map_or_else(|| None, |s| Some(s.online_since)),
+                        status,
+                        custom_status,
+                        devices,
+                        online_since,
                     });
                 }
 
@@ -260,40 +256,25 @@ pub async fn process_events(
                 bail_with_ctx!(e, "declare queue: queue_declare");
             }
 
-            match get_pool()
-                .fetch_all_guild_ids_for_user(session.user_id)
-                .await
-            {
-                Ok(guilds) => {
-                    for guild in guilds {
-                        if let Err(e) =
-                            subscribe(&amqp, guild, session.get_session_id_str(), "topic").await
-                        {
-                            bail_with_ctx!(e, "subscribe to guilds: subscribe");
-                        }
-                    }
-                }
-                Err(e) => {
-                    bail_with_ctx!(e, "fetch guild ids: fetch_all_guild_ids_for_user");
-                }
-            }
+            let pool = get_pool();
+            let (guild_ids, dm_channels) = tokio::try_join!(
+                pool.fetch_all_guild_ids_for_user(session.user_id)
+                    .map_err(|e| err_with_ctx!(e, "fetch guild ids: fetch_all_guild_ids_for_user")),
+                pool.fetch_all_dm_channels_for_user(session.user_id)
+                    .map_err(|e| err_with_ctx!(e, "fetch dm channels: fetch_all_dm_channels_for_user")),
+            )?;
 
-            match get_pool()
-                .fetch_all_dm_channels_for_user(session.user_id)
-                .await
             {
-                Ok(dm_channels) => {
-                    for channel in dm_channels {
-                        if let Err(e) =
-                            subscribe(&amqp, channel.id, session.get_session_id_str(), "topic")
-                                .await
-                        {
-                            bail_with_ctx!(e, "subscribe to dm channels: subscribe");
-                        }
+                let sid = session.get_session_id_str();
+                for g in &guild_ids {
+                    if let Err(e) = subscribe(&amqp, g, sid, "topic").await {
+                        bail_with_ctx!(e, "subscribe to guilds: subscribe");
                     }
                 }
-                Err(e) => {
-                    bail_with_ctx!(e, "fetch dm channels: fetch_all_dm_channels_for_user");
+                for c in &dm_channels {
+                    if let Err(e) = subscribe(&amqp, c.id, sid, "topic").await {
+                        bail_with_ctx!(e, "subscribe to dm channels: subscribe");
+                    }
                 }
             }
 
@@ -356,13 +337,27 @@ pub async fn process_events(
 
             let mut hidden_channels = {
                 let mut hidden = HashSet::new();
+                let non_owned_guild_ids = guilds
+                    .iter()
+                    .filter(|g| g.partial.owner_id != session.user_id)
+                    .map(|g| g.partial.id as i64)
+                    .collect::<Vec<_>>();
+
+                let mut members = if non_owned_guild_ids.is_empty() {
+                    std::collections::HashMap::new()
+                } else {
+                    get_pool()
+                        .fetch_members_for_user_in_guilds(session.user_id, &non_owned_guild_ids)
+                        .await
+                        .map_err(|e| err_with_ctx!(e, "create hidden_channels: fetch_members_for_user_in_guilds"))?
+                };
 
                 for guild in guilds {
                     if guild.partial.owner_id == session.user_id {
                         continue;
                     }
-                    let base_permissions = get_pool().fetch_member_by_id(guild.partial.id, session.user_id)
-                        .await?
+                    let base_permissions = members
+                        .remove(&guild.partial.id)
                         .ok_or("member not found while creating hidden_channels")?
                         .permissions;
 
@@ -594,7 +589,7 @@ pub async fn process_events(
             };
 
             let ws_listener = async {
-                while let Ok(Some(mut msg)) = rx.try_next().await {
+                while let Some(Ok(mut msg)) = rx.next().await {
                     if let Ok(incoming) = session.decode::<InboundMessage>(&mut msg) {
                         match incoming {
                             InboundMessage::Ping => {

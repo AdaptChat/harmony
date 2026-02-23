@@ -94,20 +94,25 @@ pub async fn subscribe(
     session_id: impl ToString,
     kind: impl ToString,
 ) -> Result<()> {
+    let exchange = exchange.to_string();
+    let session_id = session_id.to_string();
+
     channel
         .exchange_declare(ExchangeDeclareArguments {
-            exchange: exchange.to_string(),
+            exchange: exchange.clone(),
             exchange_type: kind.to_string(),
             auto_delete: true,
+            no_wait: true,
             ..Default::default()
         })
         .await?;
 
     channel
         .queue_bind(QueueBindArguments {
-            queue: session_id.to_string(),
-            exchange: exchange.to_string(),
+            queue: session_id,
+            exchange,
             routing_key: "all".to_string(), // to be replaced by intents
+            no_wait: true,
             ..Default::default()
         })
         .await?;

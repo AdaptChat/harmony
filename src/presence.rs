@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 
+use crate::{error::Result, events::publish_user_event};
 use amqprs::channel::Channel;
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
@@ -12,9 +13,6 @@ use essence::{
     models::{Device, Devices, Presence, PresenceStatus},
     ws::OutboundMessage,
 };
-use futures_util::future::TryJoinAll;
-
-use crate::{error::Result, events::publish_user_event};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 const CONFIG: Configuration = bincode::config::standard();
@@ -173,6 +171,83 @@ pub async fn update_presence(
     }
 
     Ok(())
+}
+
+/// Fetches presence data for the users with the provided IDs.
+///
+/// Returns a `Vec` parallel to `user_ids`, with each entry being
+/// `(status, custom_status, devices, online_since)`.
+pub async fn get_presences_bulk(
+    user_ids: &[u64],
+) -> Result<
+    Vec<(
+        PresenceStatus,
+        Option<String>,
+        Devices,
+        Option<chrono::DateTime<Utc>>,
+    )>,
+> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut con = get_con().await?;
+
+    let mut pipe1 = Pipeline::with_capacity(user_ids.len() * 2);
+    for &uid in user_ids {
+        pipe1.get(format!("presence-{uid}"));
+        pipe1.lindex(format!("session-{uid}"), 0);
+    }
+    let scalars: Vec<Option<Vec<u8>>> = pipe1.query_async(&mut con).await?;
+
+    let mut pipe2 = Pipeline::with_capacity(user_ids.len());
+    for &uid in user_ids {
+        pipe2.lrange(format!("session-{uid}"), 0, -1);
+    }
+    let lists: Vec<Option<Vec<Vec<u8>>>> = pipe2.query_async(&mut con).await?;
+
+    let mut result = Vec::with_capacity(user_ids.len());
+    for (i, sessions_raw) in lists.into_iter().enumerate() {
+        let base = i * 2;
+
+        let (status, custom_status) = scalars[base].as_deref().map_or_else(
+            || (PresenceStatus::Offline, None),
+            |bytes| {
+                bincode::decode_from_slice(bytes, CONFIG)
+                    .expect("malformed presence value in Redis")
+                    .0
+            },
+        );
+
+        let online_since: Option<chrono::DateTime<Utc>> =
+            scalars[base + 1].as_deref().map(|bytes| {
+                bincode::decode_from_slice::<PresenceSession, _>(bytes, CONFIG)
+                    .expect("malformed session value in Redis")
+                    .0
+                    .online_since
+            });
+
+        let mut devices = Devices::empty();
+        if let Some(sessions) = sessions_raw {
+            for bytes in sessions {
+                if let Ok((s, _)) = bincode::decode_from_slice::<PresenceSession, _>(&bytes, CONFIG)
+                {
+                    match s.device {
+                        Device::Desktop => devices.insert(Devices::DESKTOP),
+                        Device::Mobile => devices.insert(Devices::MOBILE),
+                        Device::Web => devices.insert(Devices::WEB),
+                    }
+                    if devices.is_all() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        result.push((status, custom_status, devices, online_since));
+    }
+
+    Ok(result)
 }
 
 pub async fn get_presence(user_id: u64) -> Result<(PresenceStatus, Option<String>)> {
