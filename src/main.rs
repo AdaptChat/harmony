@@ -1,4 +1,4 @@
-#![feature(lazy_cell)]
+#![warn(dependency_on_unit_never_type_fallback)]
 
 #[macro_use]
 extern crate log;

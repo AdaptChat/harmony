@@ -9,20 +9,20 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "signal", "parking_lot"] }
 log = "0.4"
-tokio-tungstenite = "0.20"
+tokio-tungstenite = "0.28"
 qstring = "0.7"
-amqprs = { version = "1.5", features = ["traces", "compliance_assert"] }
-uuid = { version = "1.5", features = ["v4", "fast-rng"] }
+amqprs = { version = "2.1", features = ["traces", "compliance_assert"] }
+uuid = { version = "1.21", features = ["v4", "fast-rng"] }
 ahash = "0.8"
-async-trait = "0.1.88"
+async-trait = "0.1"
 futures-util = "0.3"
-simd-json = "0.13"
+simd-json = "0.17"
 essence = { path = "../essence", features = ["db"] }
-rmp-serde = "1.1"
+rmp-serde = "1.3"
 serde = "1"
 dotenvy = "0.15"
 bincode = { version = "2.0.0-rc.3", features = ["serde"] }
-deadpool-redis = "0.15"
+deadpool-redis = "0.23"
 chrono = "0.4"
 env_logger = "0.10"
 

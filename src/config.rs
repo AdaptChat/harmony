@@ -6,7 +6,7 @@ use essence::{
     ws::OutboundMessage,
 };
 use futures_util::{future::try_join4, Future};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
@@ -42,10 +42,13 @@ pub struct ConnectionSettings {
 }
 
 impl ConnectionSettings {
-    pub fn decode<'a, T: Deserialize<'a>>(&self, msg: &'a mut Message) -> Result<T> {
+    pub fn decode<'a, T: DeserializeOwned>(&self, msg: &'a Message) -> Result<T> {
         match msg {
             Message::Binary(b) => Ok(rmp_serde::from_slice(b)?),
-            Message::Text(t) => unsafe { Ok(simd_json::from_str(t)?) },
+            Message::Text(t) => unsafe { 
+                let mut text = t.as_str().to_string();
+                Ok(simd_json::from_str(&mut text)?)
+            },
             _ => Err("invalid message type while decoding".into()),
         }
     }
@@ -53,10 +56,10 @@ impl ConnectionSettings {
     pub fn encode<T: Serialize>(&self, data: &T) -> Message {
         match self.format {
             MessageFormat::Json => {
-                Message::Text(simd_json::to_string(data).expect("simd-json failed to serialize"))
+                Message::Text(simd_json::to_string(data).expect("simd-json failed to serialize").into())
             }
             MessageFormat::MsgPack => Message::Binary(
-                rmp_serde::to_vec_named(data).expect("rmp-serde failed to serialize"),
+                rmp_serde::to_vec_named(data).expect("rmp-serde failed to serialize").into(),
             ),
         }
     }
