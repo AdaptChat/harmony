@@ -1,4 +1,4 @@
-use std::{net::IpAddr, time::Duration};
+use std::{collections::HashMap, net::IpAddr, time::Duration};
 
 use ahash::{HashSet, HashSetExt};
 use amqprs::channel::{
@@ -337,7 +337,7 @@ pub async fn process_events(
                     .collect::<Vec<_>>();
 
                 let mut members = if non_owned_guild_ids.is_empty() {
-                    std::collections::HashMap::new()
+                    HashMap::new()
                 } else {
                     get_pool()
                         .fetch_members_for_user_in_guilds(session.user_id, &non_owned_guild_ids)
