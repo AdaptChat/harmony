@@ -9,7 +9,6 @@ use deadpool_redis::{
     Config, Connection, Pool, Runtime,
 };
 use essence::{
-    db::{get_pool, UserDbExt},
     models::{Device, Devices, Presence, PresenceStatus},
     ws::OutboundMessage,
 };
@@ -271,16 +270,12 @@ pub async fn publish_presence_change(
     channel: &Channel,
     user_id: u64,
     presence: Presence,
+    observable_user_ids: &[u64],
 ) -> Result<()> {
-    let mut user_ids = get_pool()
-        .fetch_observable_user_ids_for_user(user_id)
-        .await?;
-    user_ids.push(user_id);
-
-    for user_id in user_ids {
+    for &uid in observable_user_ids.iter().chain([&user_id]) {
         publish_user_event(
             channel,
-            user_id,
+            uid,
             OutboundMessage::PresenceUpdate {
                 presence: presence.clone(),
             },

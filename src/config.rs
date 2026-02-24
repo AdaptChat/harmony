@@ -2,7 +2,7 @@ use std::{convert::Infallible, ops::Deref, str::FromStr};
 
 use essence::{
     db::{get_pool, AuthDbExt, ChannelDbExt, GuildDbExt, UserDbExt},
-    models::Presence,
+    models::{DmChannel, PartialGuild, Presence},
     ws::OutboundMessage,
 };
 use futures_util::{future::try_join4, Future};
@@ -105,7 +105,11 @@ impl UserSession {
         &self.session_id_str
     }
 
-    pub async fn get_ready_event(&self, presences: Vec<Presence>) -> Result<OutboundMessage> {
+    // return (ready_msg, guilds, dm_channels)
+    pub async fn prepare_ready_event(
+        &self,
+        presences: Vec<Presence>,
+    ) -> Result<(OutboundMessage, Vec<PartialGuild>, Vec<DmChannel>)> {
         let db = get_pool();
 
         async fn err_wrap<T, E: Into<essence::Error>>(
@@ -126,17 +130,19 @@ impl UserSession {
         let user = user
             .ok_or("user is deleted after connecting to ws and before ready event is generated")?;
 
-        Ok(OutboundMessage::Ready {
+        let ready = OutboundMessage::Ready {
             session_id: self.session_id_str.to_string(),
             user,
-            guilds,
-            dm_channels,
+            guilds: guilds.clone(),
+            dm_channels: dm_channels.clone(),
             favorites: vec![],
             presences,
             relationships,
             unacked,
             inbox: vec![],
-        })
+        };
+
+        Ok((ready, guilds, dm_channels))
     }
 }
 

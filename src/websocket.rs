@@ -6,7 +6,7 @@ use amqprs::channel::{
 };
 use essence::{
     calculate_permissions, calculate_permissions_sorted,
-    db::{get_pool, ChannelDbExt, GuildDbExt, MemberDbExt, UserDbExt},
+    db::{get_pool, GuildDbExt, MemberDbExt, UserDbExt},
     http::guild::GetGuildQuery,
     models::{
         Channel as EssenceChannel, Devices, PermissionOverwrite, Permissions, Presence,
@@ -14,7 +14,7 @@ use essence::{
     },
     ws::{InboundMessage, OutboundMessage},
 };
-use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use futures_util::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::{
     protocol::{frame::coding::CloseCode, CloseFrame},
@@ -202,21 +202,29 @@ pub async fn process_events(
                         .map_or_else(|| online_since, |s| s.online_since),
                 ),
             };
-            if let Err(e) = publish_presence_change(&amqp, session.user_id, presence.clone()).await {
+
+            let mut observable = get_pool()
+                .fetch_observable_user_ids_for_user(session.user_id)
+                .await
+                .map_err(|e| {
+                    err_with_ctx!(e, "fetch presences: fetch_observable_user_ids_for_user")
+                })?;
+            observable.retain(|&id| id != session.user_id);
+
+            if let Err(e) = publish_presence_change(
+                &amqp,
+                session.user_id,
+                presence.clone(),
+                &observable,
+            )
+            .await
+            {
                 bail_with_ctx!(e, "publish_presence_change");
             }
 
             info!("published user {}'s presence.", session.user_id);
 
             let presences = {
-                let mut observable = get_pool()
-                    .fetch_observable_user_ids_for_user(session.user_id)
-                    .await
-                    .map_err(|e| {
-                        err_with_ctx!(e, "fetch presences: fetch_observable_user_ids_for_user")
-                    })?;
-                observable.retain(|&id| id != session.user_id);
-
                 let bulk = get_presences_bulk(&observable).await?;
                 let mut presences = Vec::with_capacity(observable.len() + 1);
                 presences.push(presence);
@@ -235,16 +243,17 @@ pub async fn process_events(
                 presences
             };
 
-            match session.get_ready_event(presences).await {
-                Ok(ready) => {
+            let (partial_guilds, dm_channels) = match session.prepare_ready_event(presences).await {
+                Ok((ready, partial_guilds, dm_channels)) => {
                     if let Err(e) = tx.lock().await.send(session.encode(&ready)).await {
                         bail_with_ctx!(e, "send ready event: tx.send");
                     }
+                    (partial_guilds, dm_channels)
                 }
                 Err(e) => {
                     bail_with_ctx!(e, "generate ready event: session.get_ready_event");
                 }
-            }
+            };
 
             // TODO: Resume, disable auto-delete for queues
             if let Err(e) = amqp
@@ -256,14 +265,7 @@ pub async fn process_events(
                 bail_with_ctx!(e, "declare queue: queue_declare");
             }
 
-            let pool = get_pool();
-            let (guild_ids, dm_channels) = tokio::try_join!(
-                pool.fetch_all_guild_ids_for_user(session.user_id)
-                    .map_err(|e| err_with_ctx!(e, "fetch guild ids: fetch_all_guild_ids_for_user")),
-                pool.fetch_all_dm_channels_for_user(session.user_id)
-                    .map_err(|e| err_with_ctx!(e, "fetch dm channels: fetch_all_dm_channels_for_user")),
-            )?;
-
+            let guild_ids: Vec<u64> = partial_guilds.iter().map(|g| g.id).collect();
             {
                 let sid = session.get_session_id_str();
                 for g in &guild_ids {
@@ -311,28 +313,19 @@ pub async fn process_events(
                 }
             };
 
-            let guilds = {
-                let partial_guilds = match get_pool()
-                    .fetch_partial_guilds_for_user(session.user_id, None)
-                    .await
-                {
-                    Ok(guilds) => guilds,
-                    Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_partial_guilds_for_user"),
-                };
-                match get_pool()
-                    .fetch_all_guilds_for_user(
-                        partial_guilds,
-                        GetGuildQuery {
-                            channels: true,
-                            roles: true,
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    Ok(guilds) => guilds,
-                    Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_guilds_for_user"),
-                }
+            let guilds = match get_pool()
+                .fetch_all_guilds_for_user(
+                    partial_guilds,
+                    GetGuildQuery {
+                        channels: true,
+                        roles: true,
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                Ok(guilds) => guilds,
+                Err(e) => bail_with_ctx!(e, "create hidden_channels: fetch_all_guilds_for_user"),
             };
 
             let mut hidden_channels = {
@@ -636,6 +629,17 @@ pub async fn process_events(
                                     break;
                                 }
 
+                                let observable = match get_pool()
+                                    .fetch_observable_user_ids_for_user(session.user_id)
+                                    .await
+                                {
+                                    Ok(ids) => ids,
+                                    Err(e) => {
+                                        error!("failed to fetch observable users for presence update: {e:?}");
+                                        break;
+                                    }
+                                };
+
                                 if let Err(e) = publish_presence_change(
                                     &amqp,
                                     session.user_id,
@@ -660,6 +664,7 @@ pub async fn process_events(
                                             }
                                         },
                                     },
+                                    &observable,
                                 )
                                 .await
                                 {
@@ -733,6 +738,10 @@ pub async fn process_events(
         let cleanup: Result<()> = {
             remove_session(session.user_id, session.get_session_id_str()).await?;
             if !any_session_exists(session.user_id).await? {
+                let observable = get_pool()
+                    .fetch_observable_user_ids_for_user(session.user_id)
+                    .await
+                    .unwrap_or_default();
                 publish_presence_change(
                     &amqp,
                     session.user_id,
@@ -743,6 +752,7 @@ pub async fn process_events(
                         devices: Devices::empty(),
                         online_since: None,
                     },
+                    &observable,
                 )
                 .await?;
                 update_presence(session.user_id, PresenceStatus::Offline, None).await?;
