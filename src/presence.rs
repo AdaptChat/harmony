@@ -47,8 +47,9 @@ pub async fn reset_all() -> Result<()> {
         pipe.del(key).ignore();
     }
 
-    let _: () = pipe.query_async(&mut con).await?;
-
+    if !pipe.is_empty() {
+        let _: () = pipe.query_async(&mut con).await?;
+    }
     Ok(())
 }
 
