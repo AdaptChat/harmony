@@ -6,7 +6,7 @@ use essence::{
     ws::OutboundMessage,
 };
 use futures_util::{future::try_join4, Future};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
@@ -45,7 +45,7 @@ impl ConnectionSettings {
     pub fn decode<'a, T: DeserializeOwned>(&self, msg: &'a Message) -> Result<T> {
         match msg {
             Message::Binary(b) => Ok(rmp_serde::from_slice(b)?),
-            Message::Text(t) => unsafe { 
+            Message::Text(t) => unsafe {
                 let mut text = t.as_str().to_string();
                 Ok(simd_json::from_str(&mut text)?)
             },
@@ -55,11 +55,15 @@ impl ConnectionSettings {
 
     pub fn encode<T: Serialize>(&self, data: &T) -> Message {
         match self.format {
-            MessageFormat::Json => {
-                Message::Text(simd_json::to_string(data).expect("simd-json failed to serialize").into())
-            }
+            MessageFormat::Json => Message::Text(
+                simd_json::to_string(data)
+                    .expect("simd-json failed to serialize")
+                    .into(),
+            ),
             MessageFormat::MsgPack => Message::Binary(
-                rmp_serde::to_vec_named(data).expect("rmp-serde failed to serialize").into(),
+                rmp_serde::to_vec_named(data)
+                    .expect("rmp-serde failed to serialize")
+                    .into(),
             ),
         }
     }

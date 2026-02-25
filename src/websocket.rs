@@ -26,10 +26,10 @@ use crate::{
     config::{ConnectionSettings, UserSession},
     err_with_ctx,
     error::{Error, Result},
-    events::{subscribe, unsubscribe, CONFIG},
+    events::{_publish_guild_event, subscribe, unsubscribe, CONFIG},
     presence::{
-        any_session_exists, get_devices, get_first_session, get_presences_bulk, insert_session,
-        publish_presence_change, remove_session, update_presence, PresenceSession,
+        any_session_exists, get_devices, get_first_session, get_presence, get_presences_bulk,
+        insert_session, publish_presence_change, remove_session, update_presence, PresenceSession,
     },
     socket_accept::WebSocketStream,
 };
@@ -490,9 +490,10 @@ pub async fn process_events(
                                 }
                             }
                             OutboundMessage::GuildCreate { guild, .. } => {
+                                let guild_id = guild.partial.id;
                                 if let Err(e) = subscribe(
                                     &amqp,
-                                    guild.partial.id,
+                                    guild_id,
                                     session.get_session_id_str(),
                                     "topic",
                                 )
@@ -500,6 +501,46 @@ pub async fn process_events(
                                 {
                                     error!("failed to subscribe to amqp exchange: {e:?}");
                                     break;
+                                }
+
+                                // accomodate new member with presence update
+                                let (status, custom_status) =
+                                    match get_presence(session.user_id).await {
+                                        Ok(p) => p,
+                                        Err(e) => {
+                                            error!("failed to get presence for member_join broadcast: {e:?}");
+                                            continue;
+                                        }
+                                    };
+                                let devices = match get_devices(session.user_id).await {
+                                    Ok(d) => d,
+                                    Err(e) => {
+                                        error!("failed to get devices for member_join broadcast: {e:?}");
+                                        continue;
+                                    }
+                                };
+                                let online_since = match get_first_session(session.user_id).await {
+                                    Ok(s) => s.map(|s| s.online_since),
+                                    Err(e) => {
+                                        error!("failed to get first session for member_join broadcast: {e:?}");
+                                        continue;
+                                    }
+                                };
+                                let presence = Presence {
+                                    user_id: session.user_id,
+                                    status,
+                                    custom_status,
+                                    devices,
+                                    online_since,
+                                };
+                                if let Err(e) = _publish_guild_event(
+                                    &amqp,
+                                    guild_id,
+                                    OutboundMessage::PresenceUpdate { presence },
+                                )
+                                .await
+                                {
+                                    error!("failed to publish presence for member_join: {e:?}");
                                 }
                             }
                             OutboundMessage::GuildRemove { guild_id, .. } => {
