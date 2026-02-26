@@ -68,8 +68,18 @@ async fn entry() {
                     match socket_accept::accept(stream).await {
                         Ok((websocket, ip, settings)) => {
                             let ip = ip.unwrap_or(local_ip.ip());
-                            let channel = con.open_channel(None).await.expect("failed to open amqp channel.");
-                            channel.register_callback(DefaultChannelCallback).await.expect("failed to register callback for channel");
+                            let channel = match con.open_channel(None).await {
+                                Ok(ch) => ch,
+                                Err(e) => {
+                                    error!("failed to open amqp channel, dropping connection: {e:?}");
+                                    continue;
+                                }
+                            };
+                            if let Err(e) = channel.register_callback(DefaultChannelCallback).await {
+                                error!("failed to register channel callback, dropping connection: {e:?}");
+                                let _ = channel.close().await;
+                                continue;
+                            }
 
                             tokio::spawn(async move {
                                 if let Err(e) = websocket::process_events(websocket, channel, ip, settings).await {

@@ -26,7 +26,7 @@ use crate::{
     config::{ConnectionSettings, UserSession},
     err_with_ctx,
     error::{Error, Result},
-    events::{_publish_guild_event, subscribe, unsubscribe, CONFIG},
+    events::{publish_guild_event, subscribe, unsubscribe, CONFIG},
     presence::{
         any_session_exists, get_devices, get_first_session, get_presence, get_presences_bulk,
         insert_session, publish_presence_change, remove_session, update_presence, PresenceSession,
@@ -269,7 +269,7 @@ pub async fn process_events(
             {
                 let sid = session.get_session_id_str();
                 for g in &guild_ids {
-                    if let Err(e) = subscribe(&amqp, g, sid, "topic").await {
+                    if let Err(e) = subscribe(&amqp, *g, sid, "topic").await {
                         bail_with_ctx!(e, "subscribe to guilds: subscribe");
                     }
                 }
@@ -533,7 +533,7 @@ pub async fn process_events(
                                     devices,
                                     online_since,
                                 };
-                                if let Err(e) = _publish_guild_event(
+                                if let Err(e) = publish_guild_event(
                                     &amqp,
                                     guild_id,
                                     OutboundMessage::PresenceUpdate { presence },
@@ -777,30 +777,34 @@ pub async fn process_events(
         .await;
 
         let cleanup: Result<()> = {
-            remove_session(session.user_id, session.get_session_id_str()).await?;
-            if !any_session_exists(session.user_id).await? {
-                let observable = get_pool()
-                    .fetch_observable_user_ids_for_user(session.user_id)
-                    .await
-                    .unwrap_or_default();
-                publish_presence_change(
-                    &amqp,
-                    session.user_id,
-                    Presence {
-                        user_id: session.user_id,
-                        status: PresenceStatus::Offline,
-                        custom_status: None,
-                        devices: Devices::empty(),
-                        online_since: None,
-                    },
-                    &observable,
-                )
-                .await?;
-                update_presence(session.user_id, PresenceStatus::Offline, None).await?;
+            let r1 = remove_session(session.user_id, session.get_session_id_str()).await;
+            let r2: Result<()> = async {
+                if !any_session_exists(session.user_id).await? {
+                    let observable = get_pool()
+                        .fetch_observable_user_ids_for_user(session.user_id)
+                        .await
+                        .unwrap_or_default();
+                    publish_presence_change(
+                        &amqp,
+                        session.user_id,
+                        Presence {
+                            user_id: session.user_id,
+                            status: PresenceStatus::Offline,
+                            custom_status: None,
+                            devices: Devices::empty(),
+                            online_since: None,
+                        },
+                        &observable,
+                    )
+                    .await?;
+                    update_presence(session.user_id, PresenceStatus::Offline, None).await?;
+                }
+                Ok(())
             }
-            amqp.close().await?;
+            .await;
+            let r3 = amqp.close().await.map_err(Into::into);
 
-            Ok(())
+            r1.and(r2).and(r3)
         };
         let cleanup_succeeded = cleanup.is_ok();
 

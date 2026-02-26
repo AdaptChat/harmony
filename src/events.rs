@@ -7,11 +7,13 @@ use amqprs::{
     BasicProperties,
 };
 use bincode::{config::Configuration, Encode};
+use std::sync::Mutex;
+use ahash::{HashSet, HashSetExt};
 use tokio::sync::OnceCell;
 
-static EVENTS_EXCHANGE: OnceCell<()> = OnceCell::const_new();
+static DECLARED_EVENTS_EXCHANGE: OnceCell<()> = OnceCell::const_new();
+static DECLARED_GUILD_EXCHANGES: Mutex<Option<HashSet<u64>>> = Mutex::new(None);
 
-// static CHANNEL: OnceLock<Channel> = OnceLock::new();
 pub const CONFIG: Configuration = bincode::config::standard();
 
 // pub fn setup(channel: Channel) {
@@ -26,41 +28,8 @@ pub fn encode<T: Encode>(data: T) -> Result<Vec<u8>> {
     bincode::encode_to_vec(data, CONFIG).map_err(Into::into)
 }
 
-async fn publish(
-    channel: &Channel,
-    exchange: &str,
-    exchange_auto_delete: bool,
-    routing_key: &str,
-    bytes: Vec<u8>,
-) -> Result<()> {
-    // let channel = get_channel();
-
-    channel
-        .exchange_declare(
-            ExchangeDeclareArguments::of_type(exchange, ExchangeType::Topic)
-                .auto_delete(exchange_auto_delete)
-                .finish(),
-        )
-        .await?;
-    debug!("declared exchange {}", exchange);
-
-    channel
-        .basic_publish(
-            BasicProperties::default(),
-            bytes,
-            BasicPublishArguments::new(exchange, routing_key),
-        )
-        .await?;
-    debug!(
-        "published message to exchange {} for routing key {}",
-        exchange, routing_key
-    );
-
-    Ok(())
-}
-
-async fn publish_event(channel: &Channel, routing_key: &str, bytes: Vec<u8>) -> Result<()> {
-    EVENTS_EXCHANGE
+async fn ensure_events_exchange_declared(channel: &Channel) -> Result<()> {
+    DECLARED_EVENTS_EXCHANGE
         .get_or_try_init(|| async {
             channel
                 .exchange_declare(
@@ -73,6 +42,31 @@ async fn publish_event(channel: &Channel, routing_key: &str, bytes: Vec<u8>) -> 
         })
         .await?;
 
+    Ok(())
+}
+
+fn is_guild_exchange_declared(exchange_id: u64) -> bool {
+    let mut guard = DECLARED_GUILD_EXCHANGES.lock().unwrap();
+    let set = guard.get_or_insert_with(HashSet::new);
+    !set.insert(exchange_id)
+}
+
+async fn ensure_guild_exchange_declared(channel: &Channel, guild_id: u64) -> Result<()> {
+    if !is_guild_exchange_declared(guild_id) {
+        channel
+            .exchange_declare(
+                ExchangeDeclareArguments::of_type(&guild_id.to_string(), ExchangeType::Topic)
+                    .auto_delete(true)
+                    .finish(),
+            )
+            .await?;
+        debug!("declared guild exchange {}", guild_id);
+    }
+    Ok(())
+}
+
+async fn publish_global(channel: &Channel, routing_key: &str, bytes: Vec<u8>) -> Result<()> {
+    ensure_events_exchange_declared(channel).await?;
     channel
         .basic_publish(
             BasicProperties::default(),
@@ -84,11 +78,33 @@ async fn publish_event(channel: &Channel, routing_key: &str, bytes: Vec<u8>) -> 
     Ok(())
 }
 
-pub async fn publish_user_event(channel: &Channel, user_id: u64, bytes: Vec<u8>) -> Result<()> {
-    publish_event(channel, &user_id.to_string(), bytes).await
+async fn publish_guild(
+    channel: &Channel,
+    guild_id: u64,
+    routing_key: &str,
+    bytes: Vec<u8>,
+) -> Result<()> {
+    ensure_guild_exchange_declared(channel, guild_id).await?;
+    channel
+        .basic_publish(
+            BasicProperties::default(),
+            bytes,
+            BasicPublishArguments::new(&guild_id.to_string(), routing_key),
+        )
+        .await?;
+    debug!(
+        "published message to guild exchange {} for routing key {}",
+        guild_id, routing_key
+    );
+
+    Ok(())
 }
 
-pub async fn _publish_bulk_event(
+pub async fn publish_user_event(channel: &Channel, user_id: u64, bytes: Vec<u8>) -> Result<()> {
+    publish_global(channel, &user_id.to_string(), bytes).await
+}
+
+pub async fn publish_bulk_event(
     channel: &Channel,
     user_ids: impl AsRef<[u64]>,
     event: impl Encode,
@@ -100,36 +116,38 @@ pub async fn _publish_bulk_event(
         .collect::<Vec<_>>()
         .join(".");
 
-    publish_event(channel, &routing_key, encode(event)?).await
+    publish_global(channel, &routing_key, encode(event)?).await
 }
 
-pub async fn _publish_guild_event(
+pub async fn publish_guild_event(
     channel: &Channel,
     guild_id: u64,
     event: impl Encode,
 ) -> Result<()> {
     // routing_key all will be replaced with intent.
-    publish(channel, &guild_id.to_string(), true, "all", encode(event)?).await
+    publish_guild(channel, guild_id, "all", encode(event)?).await
 }
 
 pub async fn subscribe(
     channel: &Channel,
-    exchange: impl ToString,
+    exchange_id: u64,
     session_id: impl ToString,
     kind: impl ToString,
 ) -> Result<()> {
-    let exchange = exchange.to_string();
+    let exchange = exchange_id.to_string();
     let session_id = session_id.to_string();
 
-    channel
-        .exchange_declare(ExchangeDeclareArguments {
-            exchange: exchange.clone(),
-            exchange_type: kind.to_string(),
-            auto_delete: true,
-            no_wait: true,
-            ..Default::default()
-        })
-        .await?;
+    if !is_guild_exchange_declared(exchange_id) {
+        channel
+            .exchange_declare(ExchangeDeclareArguments {
+                exchange: exchange.clone(),
+                exchange_type: kind.to_string(),
+                auto_delete: true,
+                no_wait: true,
+                ..Default::default()
+            })
+            .await?;
+    }
 
     channel
         .queue_bind(QueueBindArguments {
