@@ -1,6 +1,9 @@
 use std::sync::OnceLock;
 
-use crate::{error::Result, events::publish_user_event};
+use crate::{
+    error::Result,
+    events::{encode, publish_user_event},
+};
 use amqprs::channel::Channel;
 use bincode::{config::Configuration, Decode, Encode};
 use chrono::{DateTime, Utc};
@@ -137,8 +140,9 @@ pub async fn remove_session(user_id: u64, session_id: impl AsRef<str>) -> Result
         }
     });
 
-    con.lset(&key, index as isize, "REMOVED").await?;
-    con.lrem(key, 1, "REMOVED").await?;
+    con.lset::<_, _, ()>(&key, index as isize, "REMOVED")
+        .await?;
+    con.lrem::<_, _, ()>(key, 1, "REMOVED").await?;
 
     Ok(())
 }
@@ -161,13 +165,10 @@ pub async fn update_presence(
     let mut con = get_con().await?;
 
     if status == PresenceStatus::Offline {
-        con.del(key).await?;
+        con.del::<_, ()>(key).await?;
     } else {
-        con.set(
-            key,
-            bincode::encode_to_vec((status, custom_status), CONFIG)?,
-        )
-        .await?;
+        con.set::<_, _, ()>(key, encode((status, custom_status))?)
+            .await?;
     }
 
     Ok(())
@@ -273,16 +274,9 @@ pub async fn publish_presence_change(
     presence: Presence,
     observable_user_ids: &[u64],
 ) -> Result<()> {
+    let bytes = encode(OutboundMessage::PresenceUpdate { presence })?;
     for &uid in observable_user_ids.iter().chain([&user_id]) {
-        publish_user_event(
-            channel,
-            uid,
-            OutboundMessage::PresenceUpdate {
-                presence: presence.clone(),
-            },
-        )
-        .await?;
+        publish_user_event(channel, uid, bytes.clone()).await?;
     }
-
     Ok(())
 }
