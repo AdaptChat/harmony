@@ -45,21 +45,32 @@ async fn ensure_events_exchange_declared(channel: &Channel) -> Result<()> {
     Ok(())
 }
 
-fn is_guild_exchange_declared(exchange_id: u64) -> bool {
+fn mark_guild_exchange_declared(exchange_id: u64) -> bool {
     let mut guard = DECLARED_GUILD_EXCHANGES.lock().unwrap();
     let set = guard.get_or_insert_with(HashSet::new);
     !set.insert(exchange_id)
 }
 
+fn unmark_guild_exchange_declared(exchange_id: u64) {
+    let mut guard = DECLARED_GUILD_EXCHANGES.lock().unwrap();
+    if let Some(set) = guard.as_mut() {
+        set.remove(&exchange_id);
+    }
+}
+
 async fn ensure_guild_exchange_declared(channel: &Channel, guild_id: u64) -> Result<()> {
-    if !is_guild_exchange_declared(guild_id) {
-        channel
+    if !mark_guild_exchange_declared(guild_id) {
+        if let Err(e) = channel
             .exchange_declare(
                 ExchangeDeclareArguments::of_type(&guild_id.to_string(), ExchangeType::Topic)
                     .auto_delete(false)
                     .finish(),
             )
-            .await?;
+            .await
+        {
+            unmark_guild_exchange_declared(guild_id);
+            return Err(e.into());
+        }
         debug!("declared guild exchange {}", guild_id);
     }
     Ok(())
@@ -137,8 +148,8 @@ pub async fn subscribe(
     let exchange = exchange_id.to_string();
     let session_id = session_id.to_string();
 
-    if !is_guild_exchange_declared(exchange_id) {
-        channel
+    if !mark_guild_exchange_declared(exchange_id) {
+        if let Err(e) = channel
             .exchange_declare(ExchangeDeclareArguments {
                 exchange: exchange.clone(),
                 exchange_type: kind.to_string(),
@@ -146,7 +157,11 @@ pub async fn subscribe(
                 no_wait: true,
                 ..Default::default()
             })
-            .await?;
+            .await
+        {
+            unmark_guild_exchange_declared(exchange_id);
+            return Err(e.into());
+        }
     }
 
     channel
