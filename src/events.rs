@@ -1,4 +1,5 @@
 use crate::error::Result;
+use ahash::{HashSet, HashSetExt};
 use amqprs::{
     channel::{
         BasicPublishArguments, Channel, ExchangeDeclareArguments, ExchangeType, QueueBindArguments,
@@ -8,7 +9,6 @@ use amqprs::{
 };
 use bincode::{config::Configuration, Encode};
 use std::sync::Mutex;
-use ahash::{HashSet, HashSetExt};
 use tokio::sync::OnceCell;
 
 static DECLARED_EVENTS_EXCHANGE: OnceCell<()> = OnceCell::const_new();
@@ -56,7 +56,7 @@ async fn ensure_guild_exchange_declared(channel: &Channel, guild_id: u64) -> Res
         channel
             .exchange_declare(
                 ExchangeDeclareArguments::of_type(&guild_id.to_string(), ExchangeType::Topic)
-                    .auto_delete(true)
+                    .auto_delete(false)
                     .finish(),
             )
             .await?;
@@ -142,7 +142,7 @@ pub async fn subscribe(
             .exchange_declare(ExchangeDeclareArguments {
                 exchange: exchange.clone(),
                 exchange_type: kind.to_string(),
-                auto_delete: true,
+                auto_delete: false,
                 no_wait: true,
                 ..Default::default()
             })
