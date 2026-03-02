@@ -20,7 +20,7 @@ use amqprs::{
 use tokio::{net::TcpListener, runtime::Runtime};
 
 async fn entry() {
-    dotenvy::dotenv().expect("failed to load dotenv");
+    drop(dotenvy::dotenv());
     env_logger::init();
     essence::connect(
         &std::env::var("DB_URL").expect("missing DB_URL"),
