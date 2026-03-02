@@ -43,7 +43,10 @@ async fn entry() {
         let _ = global_shutdown.send(true);
     });
 
-    let con = Connection::open(&OpenConnectionArguments::default())
+    let amqp_config = std::env::var("AMQP_URL")
+        .map(|url| OpenConnectionArguments::try_from(&*url).expect("invalid AMQP_URL"))
+        .unwrap_or_default();
+    let con = Connection::open(&amqp_config)
         .await
         .expect("failed to open amqp conn");
     con.register_callback(DefaultConnectionCallback)

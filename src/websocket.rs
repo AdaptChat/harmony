@@ -303,7 +303,7 @@ pub async fn process_events(
                             ip
                         ),
                     )
-                    .no_ack(true)
+                    .manual_ack(false)
                     .finish(),
                 )
                 .await
